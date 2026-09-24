@@ -62,7 +62,7 @@ export const authProvider: AuthProvider = {
       }
 
       saveSession(session.token);
-      return { success: true, redirectTo: "/keys" };
+      return { success: true, redirectTo: "/dashboard" };
     } catch {
       return {
         success: false,

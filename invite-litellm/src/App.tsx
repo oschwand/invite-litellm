@@ -14,6 +14,13 @@ import "@refinedev/antd/dist/reset.css";
 import { ApiOutlined } from "@ant-design/icons";
 
 import { App as AntdApp } from "antd";
+import {
+  DashboardOutlined,
+  KeyOutlined,
+  TeamOutlined,
+  UserOutlined,
+  RobotOutlined,
+} from "@ant-design/icons";
 import { BrowserRouter, Route, Routes, Navigate, Outlet } from "react-router";
 import routerProvider, {
   NavigateToResource,
@@ -26,6 +33,7 @@ import { ColorModeContextProvider } from "./contexts/color-mode";
 import { Header } from "./components/header";
 import { Login } from "./pages/login";
 import { Profile } from "./pages/profile";
+import { Dashboard } from "./pages/dashboard";
 import { KeyList } from "./pages/keys/list";
 import { TeamList } from "./pages/teams/list";
 import { UserList } from "./pages/users/list";
@@ -45,10 +53,31 @@ function App() {
                 routerProvider={routerProvider}
                 authProvider={authProvider}
                 resources={[
-                  { name: "keys", list: "/keys" },
-                  { name: "teams", list: "/teams" },
-                  { name: "users", list: "/users" },
-                  { name: "models", list: "/models" },
+                  {
+                    name: "dashboard",
+                    list: "/dashboard",
+                    meta: { label: "Dashboard", icon: <DashboardOutlined /> },
+                  },
+                  {
+                    name: "keys",
+                    list: "/keys",
+                    meta: { icon: <KeyOutlined /> },
+                  },
+                  {
+                    name: "teams",
+                    list: "/teams",
+                    meta: { icon: <TeamOutlined /> },
+                  },
+                  {
+                    name: "users",
+                    list: "/users",
+                    meta: { icon: <UserOutlined /> },
+                  },
+                  {
+                    name: "models",
+                    list: "/models",
+                    meta: { icon: <RobotOutlined /> },
+                  },
                 ]}
                 options={{
                   syncWithLocation: true,
@@ -79,13 +108,14 @@ function App() {
                       </Authenticated>
                     }
                   >
+                    <Route path="/dashboard" element={<Dashboard />} />
                     <Route path="/keys" element={<KeyList />} />
                     <Route path="/teams" element={<TeamList />} />
                     <Route path="/users" element={<UserList />} />
                     <Route path="/models" element={<ModelList />} />
                     <Route path="/profile" element={<Profile />} />
                   </Route>
-                  <Route index element={<Navigate to="/keys" replace />} />
+                  <Route index element={<Navigate to="/dashboard" replace />} />
                   <Route
                     path="/login"
                     element={
