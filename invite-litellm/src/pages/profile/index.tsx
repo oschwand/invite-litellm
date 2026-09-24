@@ -1,7 +1,6 @@
 import { useGetIdentity, useLogout } from "@refinedev/core";
-import { ArrowLeftOutlined, LogoutOutlined } from "@ant-design/icons";
+import { LogoutOutlined } from "@ant-design/icons";
 import { Avatar, Button, Card, Descriptions, Tag, Typography } from "antd";
-import { Link } from "react-router";
 import { API_URL } from "../../providers/constants";
 import type { LiteLLMIdentity } from "../../providers/auth";
 
@@ -45,17 +44,7 @@ export const Profile = () => {
 
   return (
     <div style={centered}>
-      <Card
-        title="Profile"
-        extra={
-          <Link to="/">
-            <Button icon={<ArrowLeftOutlined />} type="text">
-              Home
-            </Button>
-          </Link>
-        }
-        style={{ width: 480 }}
-      >
+      <Card title="Profile" style={{ width: 480 }}>
         <div
           style={{
             display: "flex",

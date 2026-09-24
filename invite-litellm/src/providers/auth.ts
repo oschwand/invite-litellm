@@ -136,7 +136,7 @@ export const authProvider: AuthProvider = {
       }
 
       localStorage.setItem(TOKEN_KEY, JSON.stringify({ token: session.token }));
-      return { success: true, redirectTo: "/" };
+      return { success: true, redirectTo: "/profile" };
     } catch {
       return {
         success: false,

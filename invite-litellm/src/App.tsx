@@ -1,9 +1,4 @@
-import {
-  Refine,
-  GitHubBanner,
-  WelcomePage,
-  Authenticated,
-} from "@refinedev/core";
+import { Refine, Authenticated } from "@refinedev/core";
 import { DevtoolsPanel, DevtoolsProvider } from "@refinedev/devtools";
 import { RefineKbar, RefineKbarProvider } from "@refinedev/kbar";
 
@@ -17,7 +12,7 @@ import {
 import "@refinedev/antd/dist/reset.css";
 
 import { App as AntdApp } from "antd";
-import { BrowserRouter, Route, Routes, Outlet } from "react-router";
+import { BrowserRouter, Route, Routes, Navigate } from "react-router";
 import routerProvider, {
   NavigateToResource,
   CatchAllNavigate,
@@ -36,7 +31,6 @@ import { authProvider } from "./providers/auth";
 function App() {
   return (
     <BrowserRouter>
-      <GitHubBanner />
       <RefineKbarProvider>
         <ColorModeContextProvider>
           <AntdApp>
@@ -53,7 +47,7 @@ function App() {
                 }}
               >
                 <Routes>
-                  <Route index element={<WelcomePage />} />
+                  <Route index element={<Navigate to="/profile" replace />} />
                   <Route
                     path="/login"
                     element={
