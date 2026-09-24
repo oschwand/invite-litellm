@@ -3,7 +3,6 @@ import { DevtoolsPanel, DevtoolsProvider } from "@refinedev/devtools";
 import { RefineKbar, RefineKbarProvider } from "@refinedev/kbar";
 
 import {
-  AuthPage,
   ErrorComponent,
   useNotificationProvider,
   ThemedLayout,
@@ -12,7 +11,7 @@ import {
 import "@refinedev/antd/dist/reset.css";
 
 import { App as AntdApp } from "antd";
-import { BrowserRouter, Route, Routes, Navigate } from "react-router";
+import { BrowserRouter, Route, Routes, Navigate, Outlet } from "react-router";
 import routerProvider, {
   NavigateToResource,
   CatchAllNavigate,
@@ -24,8 +23,10 @@ import { ColorModeContextProvider } from "./contexts/color-mode";
 import { Header } from "./components/header";
 import { Login } from "./pages/login";
 import { Profile } from "./pages/profile";
-import { Register } from "./pages/register";
-import { ForgotPassword } from "./pages/forgotPassword";
+import { KeyList } from "./pages/keys/list";
+import { TeamList } from "./pages/teams/list";
+import { UserList } from "./pages/users/list";
+import { ModelList } from "./pages/models/list";
 import { authProvider } from "./providers/auth";
 
 function App() {
@@ -40,6 +41,12 @@ function App() {
                 notificationProvider={useNotificationProvider}
                 routerProvider={routerProvider}
                 authProvider={authProvider}
+                resources={[
+                  { name: "keys", list: "/keys" },
+                  { name: "teams", list: "/teams" },
+                  { name: "users", list: "/users" },
+                  { name: "models", list: "/models" },
+                ]}
                 options={{
                   syncWithLocation: true,
                   warnWhenUnsavedChanges: true,
@@ -47,23 +54,41 @@ function App() {
                 }}
               >
                 <Routes>
-                  <Route index element={<Navigate to="/profile" replace />} />
+                  <Route
+                    element={
+                      <Authenticated
+                        key="authenticated-routes"
+                        fallback={<CatchAllNavigate to="/login" />}
+                      >
+                        <ThemedLayout Header={Header} Sider={ThemedSider}>
+                          <Outlet />
+                        </ThemedLayout>
+                      </Authenticated>
+                    }
+                  >
+                    <Route path="/keys" element={<KeyList />} />
+                    <Route path="/teams" element={<TeamList />} />
+                    <Route path="/users" element={<UserList />} />
+                    <Route path="/models" element={<ModelList />} />
+                    <Route path="/profile" element={<Profile />} />
+                  </Route>
+                  <Route index element={<Navigate to="/keys" replace />} />
                   <Route
                     path="/login"
                     element={
                       <Authenticated key="auth-page" fallback={<Login />}>
-                        <NavigateToResource />
+                        <NavigateToResource resource="keys" />
                       </Authenticated>
                     }
                   />
                   <Route
-                    path="/profile"
+                    path="*"
                     element={
                       <Authenticated
-                        key="profile"
+                        key="catch-all"
                         fallback={<CatchAllNavigate to="/login" />}
                       >
-                        <Profile />
+                        <ErrorComponent />
                       </Authenticated>
                     }
                   />

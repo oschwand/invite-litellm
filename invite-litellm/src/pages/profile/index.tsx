@@ -14,10 +14,10 @@ const roleTagColor = (role: string): string => {
 };
 
 const centered: React.CSSProperties = {
-  height: "100vh",
   display: "flex",
-  alignItems: "center",
+  alignItems: "flex-start",
   justifyContent: "center",
+  paddingTop: 48,
 };
 
 export const Profile = () => {

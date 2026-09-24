@@ -37,9 +37,11 @@ BrowserRouter → RefineKbarProvider → ColorModeContextProvider → AntdApp �
 - `src/components/` — shared components, re-exported through `src/components/index.ts`.
 - `src/pages/` — one folder per page (`login/`, `register/`, `forgotPassword/`), each an `index.tsx` wrapping Refine's `<AuthPage type="...">`.
 
-**Routing is minimal on purpose**: `App.tsx` redirects `/` to `/profile` (the WelcomePage scaffold placeholder was removed), renders `/login` (custom login page wrapped in `<Authenticated fallback={<Login />}><NavigateToResource /></Authenticated>` so signed-in users bounce away) and `/profile` (behind `<Authenticated fallback={<CatchAllNavigate to="/login" />}>`). Successful login redirects to `/profile`. The layout pieces (`Header`, `ThemedLayout`, `ErrorComponent`) and auth pages (`Register`, `ForgotPassword`) are imported but NOT routed yet — they are the scaffold's building blocks for wiring up authenticated resource routes. See the ESLint gotcha below.
+**Routing (full app shell)**: authenticated routes render inside `<ThemedLayout Header={Header} Sider={ThemedSider}>` (sidebar driven by the four `resources` in `<Refine>`: keys, teams, users, models — each with `list` route only). Routes: `/keys`, `/teams`, `/users`, `/models` (list pages), `/profile`; `/` redirects to `/keys` (successful login also redirects there); `/login` bounces signed-in users to `keys`; `*` renders `ErrorComponent` behind `CatchAllNavigate`. The `Register`/`ForgotPassword` page files exist but are unrouted and unused (LiteLLM OSS has no direct signup/password-reset — signup happens via invite links).
 
 **`src/pages/login/index.tsx` is a custom login page** (antd `Form` + `useLogin`), not `<AuthPage type="login">`: the bundled AuthPage hardcodes an email field with email-format validation, but LiteLLM usernames (e.g. `admin`, or DB users' emails) need a plain **username** field with no email-validity check. It sends `{username, password}` straight to `authProvider.login`; login errors surface as antd notifications via `useNotificationProvider`.
+
+**List pages** (`src/pages/{keys,teams,users,models}/list.tsx`) use `useTable` from `@refinedev/antd`. Keys and users use server-side pagination (the data provider maps it); teams and models set `pagination: { mode: "client" }` since their endpoints return full lists. Keys columns mirror the Alpine app (name = `key_alias ?? key_name`, owner, team, spend/budget USD, expires (`DateField`, null = Never), blocked tag, models stub + per-row `DeleteButton`). Models columns show per-Mtok pricing from `model_info.*_cost_per_token` × 1e6. Note: `/team/list` returns only `{team_id, team_alias}` (no budgets/spend) and is **admin-only** — internal-user sessions get a 400 error notification there; same for `/user/list` style admin data depending on role. The team table enrichment (budgets, spend, invite code via `/team/info`) is NOT ported yet.
 
 ## Conventions
 
@@ -53,7 +55,7 @@ BrowserRouter → RefineKbarProvider → ColorModeContextProvider → AntdApp �
 ## Gotchas
 
 - **`.env` now works but defaults are fine**: `src/providers/constants.ts` reads `VITE_API_URL` (fallback `http://localhost:4000`, the LiteLLM proxy) — override the proxy URL there. `.env` is gitignored.
-- **ESLint currently fails (pre-existing)**: `npx eslint .` reports 12 `no-unused-vars` errors in `src/App.tsx` (the scaffold's unrouted imports listed above) plus one `react-refresh/only-export-components` warning in `color-mode/index.tsx`. `npm run build` still passes because `tsc` has `noUnusedLocals: false`. Don't be surprised by a red lint run; wiring up the routes or removing the imports resolves most of it.
+- **ESLint is clean** (the scaffold's old unused-import errors were resolved by wiring the routes; only a benign `react-refresh/only-export-components` warning remains in `color-mode/index.tsx`).
 - **Build gate order**: `npm run build` runs `tsc` first — type errors fail the build before Vite ever runs.
 - Refine `projectId` (`11BTWd-s7WeyS-LOfTLO`) is duplicated in `package.json` (`refine` field) and `App.tsx` (`options.projectId`); it ties the app to Refine DevTools/telemetry.
 - Docker image uses `refinedev/node:18` and serves `dist/` with the `serve` package as a non-root `refine` user; build context expects `package-lock.json` present (`npm ci`).
