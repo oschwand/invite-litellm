@@ -17,6 +17,7 @@ npx eslint .     # lint (see gotcha below — there is NO `lint` script in packa
 ```
 
 - No test framework is configured. There are no tests and no test runner.
+- **Never start the dev server yourself** (`npm run dev`) — the user keeps one running. Typecheck with `npx tsc --noEmit` instead of smoke-testing in a browser.
 - `.npmrc` sets `legacy-peer-deps=true` — use npm; dependency resolution expects it.
 
 ## Architecture

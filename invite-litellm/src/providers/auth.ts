@@ -16,6 +16,14 @@ interface ErrorBody {
   message?: string;
 }
 
+export interface LiteLLMIdentity {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  expiresAt: number;
+}
+
 // LiteLLM error bodies vary: {"error": {"message"}}, {"detail": "..."},
 // {"detail": {"error": "..."}} — handle all three.
 function extractErrorMessage(body: unknown): string | null {
@@ -164,6 +172,7 @@ export const authProvider: AuthProvider = {
       name: session.userEmail || session.userId,
       email: session.userEmail,
       role: session.userRole,
+      expiresAt: session.expiresAt,
     };
   },
 

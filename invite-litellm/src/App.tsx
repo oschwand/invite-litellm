@@ -28,6 +28,7 @@ import { dataProvider } from "./providers/data";
 import { ColorModeContextProvider } from "./contexts/color-mode";
 import { Header } from "./components/header";
 import { Login } from "./pages/login";
+import { Profile } from "./pages/profile";
 import { Register } from "./pages/register";
 import { ForgotPassword } from "./pages/forgotPassword";
 import { authProvider } from "./providers/auth";
@@ -58,6 +59,17 @@ function App() {
                     element={
                       <Authenticated key="auth-page" fallback={<Login />}>
                         <NavigateToResource />
+                      </Authenticated>
+                    }
+                  />
+                  <Route
+                    path="/profile"
+                    element={
+                      <Authenticated
+                        key="profile"
+                        fallback={<CatchAllNavigate to="/login" />}
+                      >
+                        <Profile />
                       </Authenticated>
                     }
                   />
