@@ -13,7 +13,9 @@ export interface VirtualKey {
   key_name: string | null;
   key_alias: string | null;
   user_id: string | null;
+  owner_name: string | null;
   team_id: string | null;
+  team_name: string | null;
   spend: number | null;
   max_budget: number | null;
   expires: string | null;
@@ -35,18 +37,23 @@ export const KeyList = () => {
       <Table {...tableProps} rowKey="id">
         <Table.Column<VirtualKey>
           dataIndex="key_alias"
-          title="Name"
-          render={(_, record) => record.key_alias ?? record.key_name ?? "—"}
+          title="Key"
+          render={(_, record) => record.key_alias ?? "—"}
         />
         <Table.Column<VirtualKey>
-          dataIndex="user_id"
+          dataIndex="key_name"
+          title="Key name"
+          render={(value) => value ?? "—"}
+        />
+        <Table.Column<VirtualKey>
+          dataIndex="owner_name"
           title="Owner"
-          render={(value) => value || "—"}
+          render={(_, record) => record.owner_name ?? record.user_id ?? "—"}
         />
         <Table.Column<VirtualKey>
-          dataIndex="team_id"
+          dataIndex="team_name"
           title="Team"
-          render={(value) => value || "—"}
+          render={(_, record) => record.team_name ?? record.team_id ?? "—"}
         />
         <Table.Column<VirtualKey>
           dataIndex="spend"

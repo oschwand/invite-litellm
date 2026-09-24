@@ -124,6 +124,70 @@ function withId(record: LiteLLMRecord, idField: string): LiteLLMRecord {
   return { ...record, id: String(record[idField] ?? record.id ?? "") };
 }
 
+// Resolve user ids to display names (alias, falling back to email) via a
+// single /user/list?user_ids=a,b,c call. Best-effort: unresolvable ids are
+// simply absent from the map (callers fall back to the raw id).
+async function resolveUserNames(
+  userIds: string[],
+): Promise<Map<string, string>> {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  if (ids.length === 0) return new Map();
+  try {
+    const body = await litellmRequest<UserListResponse>("/user/list", {
+      query: { user_ids: ids.join(",") },
+    });
+    const map = new Map<string, string>();
+    for (const user of body.users ?? []) {
+      const id = String(user.user_id ?? "");
+      const name =
+        (user.user_alias as string | null) ??
+        (user.user_email as string | null) ??
+        "";
+      if (id && name) map.set(id, name);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+// Resolve team ids to names: /team/list (admin-only, one call) first, then
+// per-team /team/info for anything still missing (works for team members).
+async function resolveTeamNames(
+  teamIds: string[],
+): Promise<Map<string, string>> {
+  const ids = [...new Set(teamIds.filter(Boolean))];
+  if (ids.length === 0) return new Map();
+  const map = new Map<string, string>();
+  try {
+    const teams = await litellmRequest<LiteLLMRecord[]>("/team/list", {});
+    for (const team of teams) {
+      const id = String(team.team_id ?? "");
+      const alias = String(team.team_alias ?? "");
+      if (id && alias) map.set(id, alias);
+    }
+  } catch {
+    // /team/list is admin-only — fall through to /team/info lookups.
+  }
+  await Promise.all(
+    ids
+      .filter((id) => !map.has(id))
+      .map(async (id) => {
+        try {
+          const body = await litellmRequest<{ team_info?: LiteLLMRecord }>(
+            "/team/info",
+            { query: { team_id: id } },
+          );
+          const alias = String(body.team_info?.team_alias ?? "");
+          if (alias) map.set(id, alias);
+        } catch {
+          // unresolved — callers fall back to the raw team id
+        }
+      }),
+  );
+  return map;
+}
+
 function assertSupportedResource(resource: string) {
   if (!["keys", "teams", "users", "models"].includes(resource)) {
     throw new LiteLLMError(
@@ -154,8 +218,18 @@ export const dataProvider: DataProvider = {
         },
       });
       const keys = body.keys ?? [];
+      // Resolve owner/team ids to display names (best-effort, in parallel).
+      const [userNames, teamNames] = await Promise.all([
+        resolveUserNames(keys.map((key) => String(key.user_id ?? ""))),
+        resolveTeamNames(keys.map((key) => String(key.team_id ?? ""))),
+      ]);
+      const enriched = keys.map((key) => ({
+        ...key,
+        owner_name: userNames.get(String(key.user_id ?? "")) ?? null,
+        team_name: teamNames.get(String(key.team_id ?? "")) ?? null,
+      }));
       return {
-        data: keys.map((key) => withId(key, "token")) as TData[],
+        data: enriched.map((key) => withId(key, "token")) as TData[],
         total: body.total_count ?? keys.length,
       };
     }
