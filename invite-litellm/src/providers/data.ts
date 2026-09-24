@@ -180,7 +180,41 @@ export const dataProvider: DataProvider = {
       const teams = await litellmRequest<LiteLLMRecord[]>("/team/list", {
         query: filtersToQuery(filters, { user_id: "user_id" }),
       });
-      const list = applyClientSide(teams, sorters, onlyLogical);
+      // /team/list returns only {team_id, team_alias} — enrich each row via
+      // /team/info in parallel, best-effort (missing fields stay null).
+      const enriched = await Promise.all(
+        teams.map(async (team) => {
+          try {
+            const body = await litellmRequest<{
+              team_info?: LiteLLMRecord;
+              keys?: LiteLLMRecord[];
+            }>("/team/info", { query: { team_id: String(team.team_id) } });
+            const info = body.team_info ?? {};
+            const memberBudget = info.team_member_budget_table as
+              | { max_budget?: number | null }
+              | null
+              | undefined;
+            return {
+              ...team,
+              key_count: Array.isArray(body.keys) ? body.keys.length : null,
+              max_budget: (info.max_budget as number | null) ?? null,
+              member_budget: memberBudget?.max_budget ?? null,
+              spend: (info.spend as number | null) ?? null,
+              models: (info.models as string[] | null) ?? null,
+            };
+          } catch {
+            return {
+              ...team,
+              key_count: null,
+              max_budget: null,
+              member_budget: null,
+              spend: null,
+              models: null,
+            };
+          }
+        }),
+      );
+      const list = applyClientSide(enriched, sorters, onlyLogical);
       return {
         data: list.map((team) => withId(team, "team_id")) as TData[],
         total: list.length,
