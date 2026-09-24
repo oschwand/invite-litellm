@@ -1,5 +1,347 @@
-import { createSimpleRestDataProvider } from "@refinedev/rest/simple-rest";
+import type {
+  BaseRecord,
+  CreateParams,
+  CreateResponse,
+  CrudFilter,
+  CrudSort,
+  DataProvider,
+  DeleteOneParams,
+  DeleteOneResponse,
+  GetListParams,
+  GetListResponse,
+  GetOneParams,
+  GetOneResponse,
+  LogicalFilter,
+  UpdateParams,
+  UpdateResponse,
+} from "@refinedev/core";
 import { API_URL } from "./constants";
-export const { dataProvider, kyInstance } = createSimpleRestDataProvider({
-  apiURL: API_URL,
-});
+import { LiteLLMError, litellmRequest, type QueryValue } from "./litellm";
+
+// ---------------------------------------------------------------------------
+// LiteLLM API response shapes (verified against a live proxy v1.100.x — the
+// OpenAPI spec leaves most of these untyped). See ../frontend/AGENTS.md for
+// the field-level documentation of key objects.
+// ---------------------------------------------------------------------------
+
+type LiteLLMRecord = Record<string, unknown>;
+
+interface KeyListResponse {
+  keys?: LiteLLMRecord[];
+  total_count?: number;
+}
+
+interface UserListResponse {
+  users?: LiteLLMRecord[];
+  total?: number;
+}
+
+interface ModelInfoResponse {
+  data?: LiteLLMRecord[];
+}
+
+// Server-side filterable query params per resource (list endpoints).
+const KEY_LIST_FILTERS: Record<string, string> = {
+  user_id: "user_id",
+  team_id: "team_id",
+  organization_id: "organization_id",
+  key_alias: "key_alias",
+  status: "status",
+  expires: "expires",
+};
+
+const USER_LIST_FILTERS: Record<string, string> = {
+  role: "role",
+  team_id: "team",
+  user_email: "user_email",
+};
+
+// Refine filter -> LiteLLM query params (exact-match fields only).
+function filtersToQuery(
+  filters: CrudFilter[] | undefined,
+  mapping: Record<string, string>,
+): Record<string, QueryValue> {
+  const query: Record<string, QueryValue> = {};
+  for (const filter of filters ?? []) {
+    if ("field" in filter && filter.operator === "eq" && mapping[filter.field]) {
+      query[mapping[filter.field]] = String(filter.value);
+    }
+  }
+  return query;
+}
+
+function sorterToQuery(
+  sorters: CrudSort[] | undefined,
+): Record<string, QueryValue> {
+  const sorter = sorters?.[0];
+  if (!sorter) return {};
+  return { sort_by: sorter.field, sort_order: sorter.order };
+}
+
+// Client-side sorting/filtering for endpoints that return the full list in
+// one shot (/team/list, /model/info).
+function applyClientSide(
+  records: LiteLLMRecord[],
+  sorters: CrudSort[] | undefined,
+  filters: LogicalFilter[],
+): LiteLLMRecord[] {
+  let result = [...records];
+  for (const filter of filters) {
+    const expected = filter.value;
+    result = result.filter((record) => {
+      const actual = record[filter.field];
+      if (filter.operator === "eq") return actual === expected;
+      if (filter.operator === "ne") return actual !== expected;
+      if (filter.operator === "contains") {
+        return String(actual ?? "")
+          .toLowerCase()
+          .includes(String(expected ?? "").toLowerCase());
+      }
+      if (filter.operator === "null") return actual == null;
+      return true;
+    });
+  }
+  const sorter = sorters?.[0];
+  if (sorter) {
+    result.sort((a, b) => {
+      const av = a[sorter.field];
+      const bv = b[sorter.field];
+      const cmp =
+        av === bv ? 0 : av == null ? -1 : bv == null ? 1 : av > bv ? 1 : -1;
+      return sorter.order === "desc" ? -cmp : cmp;
+    });
+  }
+  return result;
+}
+
+function logicalFilters(filters: CrudFilter[] | undefined): LogicalFilter[] {
+  return (filters ?? []).filter((filter): filter is LogicalFilter =>
+    "field" in filter === true,
+  );
+}
+
+function withId(record: LiteLLMRecord, idField: string): LiteLLMRecord {
+  return { ...record, id: String(record[idField] ?? record.id ?? "") };
+}
+
+function assertSupportedResource(resource: string) {
+  if (!["keys", "teams", "users", "models"].includes(resource)) {
+    throw new LiteLLMError(
+      `Unknown resource "${resource}" — expected keys, teams, users or models.`,
+      400,
+    );
+  }
+}
+
+export const dataProvider: DataProvider = {
+  getList: async <TData extends BaseRecord = BaseRecord>(
+    params: GetListParams,
+  ): Promise<GetListResponse<TData>> => {
+    const { resource, pagination, sorters, filters } = params;
+    assertSupportedResource(resource);
+    const currentPage = pagination?.currentPage ?? 1;
+    const pageSize = pagination?.pageSize ?? 10;
+    const onlyLogical = logicalFilters(filters);
+
+    if (resource === "keys") {
+      const body = await litellmRequest<KeyListResponse>("/key/list", {
+        query: {
+          return_full_object: true,
+          page: currentPage,
+          size: Math.min(pageSize, 100), // LiteLLM hard cap
+          ...filtersToQuery(filters, KEY_LIST_FILTERS),
+          ...sorterToQuery(sorters),
+        },
+      });
+      const keys = body.keys ?? [];
+      return {
+        data: keys.map((key) => withId(key, "token")) as TData[],
+        total: body.total_count ?? keys.length,
+      };
+    }
+
+    if (resource === "users") {
+      const body = await litellmRequest<UserListResponse>("/user/list", {
+        query: {
+          page: currentPage,
+          page_size: Math.min(pageSize, 100),
+          ...filtersToQuery(filters, USER_LIST_FILTERS),
+          ...sorterToQuery(sorters),
+        },
+      });
+      const users = body.users ?? [];
+      return {
+        data: users.map((user) => withId(user, "user_id")) as TData[],
+        total: body.total ?? users.length,
+      };
+    }
+
+    if (resource === "teams") {
+      const teams = await litellmRequest<LiteLLMRecord[]>("/team/list", {
+        query: filtersToQuery(filters, { user_id: "user_id" }),
+      });
+      const list = applyClientSide(teams, sorters, onlyLogical);
+      return {
+        data: list.map((team) => withId(team, "team_id")) as TData[],
+        total: list.length,
+      };
+    }
+
+    // models
+    const body = await litellmRequest<ModelInfoResponse>("/model/info", {});
+    const models = body.data ?? [];
+    const list = applyClientSide(models, sorters, onlyLogical);
+    return {
+      data: list.map((model) => withId(model, "model_name")) as TData[],
+      total: list.length,
+    };
+  },
+
+  getOne: async <TData extends BaseRecord = BaseRecord>(
+    params: GetOneParams,
+  ): Promise<GetOneResponse<TData>> => {
+    const { resource, id } = params;
+    assertSupportedResource(resource);
+    const key = String(id);
+
+    if (resource === "keys") {
+      const body = await litellmRequest<{ info?: LiteLLMRecord }>("/key/info", {
+        query: { key },
+      });
+      return { data: withId(body.info ?? {}, "token") as TData };
+    }
+
+    if (resource === "teams") {
+      const body = await litellmRequest<{ team_info?: LiteLLMRecord }>(
+        "/team/info",
+        { query: { team_id: key } },
+      );
+      return { data: withId(body.team_info ?? {}, "team_id") as TData };
+    }
+
+    if (resource === "users") {
+      const body = await litellmRequest<LiteLLMRecord>("/user/info", {
+        query: { user_id: key },
+      });
+      const info = (body.user_info as LiteLLMRecord | undefined) ?? body;
+      return { data: withId(info, "user_id") as TData };
+    }
+
+    // models: /model/info has no per-name lookup — scan the list.
+    const body = await litellmRequest<ModelInfoResponse>("/model/info", {});
+    const model = (body.data ?? []).find((m) => m.model_name === key);
+    if (!model) {
+      throw new LiteLLMError(`Model "${key}" was not found.`, 404);
+    }
+    return { data: withId(model, "model_name") as TData };
+  },
+
+  create: async <TData extends BaseRecord = BaseRecord, TVariables = Record<string, unknown>>(
+    params: CreateParams<TVariables>,
+  ): Promise<CreateResponse<TData>> => {
+    const { resource, variables } = params;
+    assertSupportedResource(resource);
+    if (resource === "models") {
+      throw new LiteLLMError(
+        "Creating models is not supported by this data provider.",
+        400,
+      );
+    }
+
+    const endpoints: Record<string, string> = {
+      keys: "/key/generate",
+      teams: "/team/new",
+      users: "/user/new",
+    };
+    const idFields: Record<string, string> = {
+      keys: "token",
+      teams: "team_id",
+      users: "user_id",
+    };
+    const body = await litellmRequest<LiteLLMRecord>(endpoints[resource], {
+      method: "POST",
+      body: variables,
+    });
+    return { data: withId(body, idFields[resource]) as TData };
+  },
+
+  update: async <TData extends BaseRecord = BaseRecord, TVariables = Record<string, unknown>>(
+    params: UpdateParams<TVariables>,
+  ): Promise<UpdateResponse<TData>> => {
+    const { resource, id, variables } = params;
+    assertSupportedResource(resource);
+    if (resource === "models") {
+      throw new LiteLLMError(
+        "Updating models is not supported by this data provider.",
+        400,
+      );
+    }
+
+    const idFields: Record<string, string> = {
+      keys: "key",
+      teams: "team_id",
+      users: "user_id",
+    };
+    const endpoints: Record<string, string> = {
+      keys: "/key/update",
+      teams: "/team/update",
+      users: "/user/update",
+    };
+    const body = await litellmRequest<LiteLLMRecord>(endpoints[resource], {
+      method: "POST",
+      body: { [idFields[resource]]: String(id), ...variables },
+    });
+    return { data: { ...body, id } as TData };
+  },
+
+  deleteOne: async <TData extends BaseRecord = BaseRecord, TVariables = Record<string, unknown>>(
+    params: DeleteOneParams<TVariables>,
+  ): Promise<DeleteOneResponse<TData>> => {
+    const { resource, id } = params;
+    assertSupportedResource(resource);
+    if (resource === "models") {
+      throw new LiteLLMError(
+        "Deleting models is not supported by this data provider.",
+        400,
+      );
+    }
+
+    try {
+      if (resource === "keys") {
+        await litellmRequest("/key/delete", {
+          method: "POST",
+          body: { keys: [String(id)] },
+        });
+      } else if (resource === "teams") {
+        await litellmRequest("/team/delete", {
+          method: "POST",
+          body: { team_ids: [String(id)] },
+        });
+      } else {
+        await litellmRequest("/user/delete", {
+          method: "POST",
+          body: { user_ids: [String(id)] },
+        });
+      }
+    } catch (error) {
+      // Deleting an already-deleted key hash returns 404 "No keys found" —
+      // treat as success so retries are safe (key aliases are globally
+      // unique and regeneration is delete -> create).
+      const alreadyGone =
+        error instanceof LiteLLMError &&
+        error.statusCode === 404 &&
+        /no keys found/i.test(error.message);
+      if (!alreadyGone) throw error;
+    }
+    return { data: { id } as TData };
+  },
+
+  getApiUrl: () => API_URL,
+
+  custom: async ({ url, method, payload, query }) =>
+    litellmRequest(url, {
+      method: method.toUpperCase(),
+      body: payload,
+      query: query as Record<string, QueryValue> | undefined,
+    }),
+};
