@@ -175,16 +175,17 @@ type TeamInfoResponse = {
 };
 
 export const ModelList = () => {
-  // /models?team_id=<id> filters the list to the models allowed for that
-  // team (the provider fetches the team's allowlist via /team/info).
+  // /models?team_id=<id> filters by a team's allowlist, /models?key_hash=<h>
+  // by a virtual key's own allowlist (the provider resolves both).
   const [searchParams] = useSearchParams();
   const teamId = searchParams.get("team_id") ?? undefined;
+  const keyHash = searchParams.get("key_hash") ?? undefined;
 
   const { tableProps } = useTable<ModelDeployment>({
     resource: "models",
     syncWithLocation: true,
     pagination: { mode: "client" },
-    meta: { teamId },
+    meta: { teamId, keyHash },
   });
 
   // Resolve the team's display name for the title when filtering.
@@ -197,9 +198,64 @@ export const ModelList = () => {
   const teamName = (
     teamQuery.data as TeamInfoResponse | undefined
   )?.team_info?.team_alias;
-  const title = !teamId
-    ? "All proxy models"
-    : (teamName ?? "Team models");
+
+  // Resolve the key's record for the title when filtering by key: alias,
+  // the masked key (key_name, e.g. "sk-...zfmQ") and its team's name.
+  const { query: keyQuery } = useCustom<{
+    keys?: {
+      key_alias?: string | null;
+      key_name?: string | null;
+      team_id?: string | null;
+    }[];
+  }>({
+    url: "/key/list",
+    method: "get",
+    config: { query: { return_full_object: true, key_hash: keyHash, size: 1 } },
+    queryOptions: { enabled: Boolean(keyHash) },
+  });
+  const keyRecord = (
+    keyQuery.data as
+      | {
+          keys?: {
+            key_alias?: string | null;
+            key_name?: string | null;
+            team_id?: string | null;
+          }[];
+        }
+      | undefined
+  )?.keys?.[0];
+
+  const keyTeamId = keyRecord?.team_id ?? undefined;
+  const { query: keyTeamQuery } = useCustom<TeamInfoResponse>({
+    url: "/team/info",
+    method: "get",
+    config: { query: { team_id: keyTeamId } },
+    queryOptions: { enabled: Boolean(keyHash && keyTeamId) },
+  });
+  const keyTeamName = (
+    keyTeamQuery.data as TeamInfoResponse | undefined
+  )?.team_info?.team_alias;
+
+  let title: React.ReactNode = "All proxy models";
+  if (teamId) {
+    title = teamName ?? "Team models";
+  } else if (keyHash) {
+    title = (
+      <span>
+        {keyRecord?.key_alias ?? "Key models"}
+        {keyRecord?.key_name ? (
+          <Typography.Text type="secondary" style={{ marginLeft: 8 }}>
+            {keyRecord.key_name}
+          </Typography.Text>
+        ) : null}
+        {keyTeamName ? (
+          <Typography.Text type="secondary" style={{ marginLeft: 8 }}>
+            · {keyTeamName}
+          </Typography.Text>
+        ) : null}
+      </span>
+    );
+  }
 
   return (
     <List title={title}>

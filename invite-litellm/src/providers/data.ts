@@ -337,11 +337,14 @@ export const dataProvider: DataProvider = {
 
     // models — when meta.teamId is set (linked from a team's Models cell),
     // fetch the team's allowlist via /team/info and filter by model_name.
-    // The /model/info?teamId server param is NOT usable for this: it filters
-    // by deployment access (direct_access / access_via_team_ids), not by the
-    // team's allowed-models list. An unrestricted team (models null/empty or
-    // just the "all-proxy-models" codename) gets the full list.
+    // meta.keyHash does the same for a virtual key's own allowlist (linked
+    // from the keys page) via /key/list?key_hash. The /model/info?teamId
+    // server param is NOT usable for this: it filters by deployment access
+    // (direct_access / access_via_team_ids), not by the allowed-models
+    // list. Unrestricted (models null/empty or just "all-proxy-models")
+    // gets the full list.
     const teamId = (meta as { teamId?: string } | undefined)?.teamId;
+    const keyHash = (meta as { keyHash?: string } | undefined)?.keyHash;
     let allowedModels: string[] | undefined;
     if (teamId) {
       const teamBody = await litellmRequest<{
@@ -350,6 +353,14 @@ export const dataProvider: DataProvider = {
       const teamModels = teamBody.team_info?.models ?? null;
       if (teamModels && !isAllModels(teamModels)) {
         allowedModels = teamModels;
+      }
+    } else if (keyHash) {
+      const keyBody = await litellmRequest<KeyListResponse>("/key/list", {
+        query: { return_full_object: true, key_hash: keyHash, size: 1 },
+      });
+      const keyModels = (keyBody.keys?.[0]?.models as string[] | null) ?? null;
+      if (keyModels && !isAllModels(keyModels)) {
+        allowedModels = keyModels;
       }
     }
     const body = await litellmRequest<ModelInfoResponse>("/model/info", {});

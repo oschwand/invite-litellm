@@ -1,5 +1,6 @@
 import { DateField, List, TagField, useTable } from "@refinedev/antd";
 import { Table } from "antd";
+import { Link } from "react-router";
 import { isAllModels } from "../../utils/models";
 import { KeyRowActions } from "../../components";
 
@@ -88,10 +89,14 @@ export const KeyList = () => {
         <Table.Column<VirtualKey>
           dataIndex="models"
           title="Models"
-          render={(value) =>
-            isAllModels(value)
-              ? "All models"
-              : `${value.length} model${value.length > 1 ? "s" : ""}`
+          render={(value, record) =>
+            isAllModels(value) ? (
+              <Link to="/models">All models</Link>
+            ) : (
+              <Link to={`/models?key_hash=${record.token}`}>
+                {value.length} model{value.length > 1 ? "s" : ""}
+              </Link>
+            )
           }
         />
         <Table.Column<VirtualKey>
