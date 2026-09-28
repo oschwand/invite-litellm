@@ -23,6 +23,7 @@ type UserInfoResponse = {
 type TeamMemberMe = {
   id?: string;
   spend?: number | null;
+  litellm_budget_table?: { max_budget?: number | null } | null;
 };
 
 // The user's own spend within a team, as shown per member in the official
@@ -37,6 +38,20 @@ const TeamMemberSpend = ({ teamId }: { teamId: string }) => {
   if (query.isLoading || query.isError) return <>—</>;
   const me = query.data as TeamMemberMe | undefined;
   return <>{usd(me?.spend)}</>;
+};
+
+// The user's budget within a team: the membership row's budget table
+// (litellm_budget_table), i.e. the cap applied to this user's spend in
+// this team. No row = no personal cap at team level.
+const TeamMemberBudget = ({ teamId }: { teamId: string }) => {
+  const { query } = useCustom<TeamMemberMe>({
+    url: `/team/${teamId}/members/me`,
+    method: "get",
+  });
+  if (query.isLoading || query.isError) return <>—</>;
+  const me = query.data as TeamMemberMe | undefined;
+  const budget = me?.litellm_budget_table?.max_budget ?? null;
+  return <>{budget == null ? "Unlimited" : usd(budget)}</>;
 };
 
 const usd = (value: number | null | undefined) =>
@@ -127,6 +142,10 @@ export const Dashboard = () => {
             <Table.Column<DashboardTeam>
               title="My spend"
               render={(_, record) => <TeamMemberSpend teamId={record.team_id} />}
+            />
+            <Table.Column<DashboardTeam>
+              title="My budget"
+              render={(_, record) => <TeamMemberBudget teamId={record.team_id} />}
             />
             <Table.Column<DashboardTeam>
               dataIndex="models"
