@@ -1,20 +1,41 @@
 import { DateField } from "@refinedev/antd";
 import { useCustom, useGetIdentity, useList } from "@refinedev/core";
-import { Card, Col, Row, Table, Tag } from "antd";
+import { Card, Col, Row, Statistic, Table, Tag } from "antd";
 import type { LiteLLMIdentity } from "../../providers/auth";
 import type { VirtualKey } from "../keys/list";
 
 interface DashboardTeam {
   team_id: string;
   team_alias: string | null;
-  max_budget: number | null;
-  spend: number | null;
   models: string[] | null;
 }
 
 type UserInfoResponse = {
   id?: string;
   teams?: DashboardTeam[];
+  user_info?: {
+    spend?: number | null;
+    max_budget?: number | null;
+  } | null;
+};
+
+type TeamMemberMe = {
+  id?: string;
+  spend?: number | null;
+};
+
+// The user's own spend within a team, as shown per member in the official
+// LiteLLM UI: GET /team/{team_id}/members/me resolves "me" from the
+// session key and returns the membership row (spend = current budget
+// period, total_spend = lifetime).
+const TeamMemberSpend = ({ teamId }: { teamId: string }) => {
+  const { query } = useCustom<TeamMemberMe>({
+    url: `/team/${teamId}/members/me`,
+    method: "get",
+  });
+  if (query.isLoading || query.isError) return <>—</>;
+  const me = query.data as TeamMemberMe | undefined;
+  return <>{usd(me?.spend)}</>;
 };
 
 const usd = (value: number | null | undefined) =>
@@ -33,7 +54,10 @@ export const Dashboard = () => {
 
   const { query: keysQuery } = useList<VirtualKey>({
     resource: "keys",
-    pagination: { currentPage: 1, pageSize: 100 },
+    // Walk every page of /key/list so the aggregation covers the complete
+    // key set even on proxies where an admin session sees hundreds of keys.
+    pagination: { mode: "off" },
+    meta: { allPages: true },
     queryOptions: { enabled: Boolean(userId) },
   });
 
@@ -42,6 +66,8 @@ export const Dashboard = () => {
   // a nested `.data` despite the CustomResponse typing.
   const teams =
     (userQuery.data as UserInfoResponse | undefined)?.teams ?? [];
+  const myInfo =
+    (userQuery.data as UserInfoResponse | undefined)?.user_info ?? null;
   // /key/list is visibility-scoped server-side (internal users see only their
   // own keys) — for admin sessions trim it down to the user's own keys.
   // Filtering client-side on purpose: a server-side user_id filter returns 0
@@ -52,6 +78,29 @@ export const Dashboard = () => {
 
   return (
     <Row gutter={[16, 16]}>
+      <Col xs={24}>
+        <Card loading={userQuery.isLoading}>
+          <Row gutter={16}>
+            <Col xs={12} md={8}>
+              <Statistic
+                title="My total spend"
+                value={myInfo?.spend ?? 0}
+                formatter={(value) => usd(Number(value))}
+              />
+            </Col>
+            <Col xs={12} md={8}>
+              <Statistic
+                title="My budget"
+                value={
+                  myInfo?.max_budget == null
+                    ? "Unlimited"
+                    : `$${myInfo.max_budget.toFixed(2)}`
+                }
+              />
+            </Col>
+          </Row>
+        </Card>
+      </Col>
       <Col xs={24} xl={12}>
         <Card title="My teams" loading={userQuery.isLoading}>
           <Table<DashboardTeam>
@@ -66,14 +115,8 @@ export const Dashboard = () => {
               render={(value) => value || "—"}
             />
             <Table.Column<DashboardTeam>
-              dataIndex="max_budget"
-              title="Budget"
-              render={(value) => (value == null ? "Unlimited" : usd(value))}
-            />
-            <Table.Column<DashboardTeam>
-              dataIndex="spend"
-              title="Spend"
-              render={(value) => usd(value)}
+              title="My spend"
+              render={(_, record) => <TeamMemberSpend teamId={record.team_id} />}
             />
             <Table.Column<DashboardTeam>
               dataIndex="models"
@@ -97,7 +140,7 @@ export const Dashboard = () => {
           >
             <Table.Column<VirtualKey>
               dataIndex="key_alias"
-              title="Key"
+              title="Name"
               render={(value) => value ?? "—"}
             />
             <Table.Column<VirtualKey>

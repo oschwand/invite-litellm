@@ -37,12 +37,12 @@ export const KeyList = () => {
       <Table {...tableProps} rowKey="id">
         <Table.Column<VirtualKey>
           dataIndex="key_alias"
-          title="Key"
+          title="Name"
           render={(_, record) => record.key_alias ?? "—"}
         />
         <Table.Column<VirtualKey>
           dataIndex="key_name"
-          title="Key name"
+          title="Key"
           render={(value) => value ?? "—"}
         />
         <Table.Column<VirtualKey>

@@ -29,6 +29,7 @@ type LiteLLMRecord = Record<string, unknown>;
 interface KeyListResponse {
   keys?: LiteLLMRecord[];
   total_count?: number;
+  total_pages?: number;
 }
 
 interface UserListResponse {
@@ -132,18 +133,29 @@ async function resolveUserNames(
 ): Promise<Map<string, string>> {
   const ids = [...new Set(userIds.filter(Boolean))];
   if (ids.length === 0) return new Map();
+  // Chunk to keep the user_ids query param within URL limits.
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += 50) {
+    chunks.push(ids.slice(index, index + 50));
+  }
   try {
-    const body = await litellmRequest<UserListResponse>("/user/list", {
-      query: { user_ids: ids.join(",") },
-    });
+    const maps = await Promise.all(
+      chunks.map((chunk) =>
+        litellmRequest<UserListResponse>("/user/list", {
+          query: { user_ids: chunk.join(",") },
+        }),
+      ),
+    );
     const map = new Map<string, string>();
-    for (const user of body.users ?? []) {
-      const id = String(user.user_id ?? "");
-      const name =
-        (user.user_alias as string | null) ??
-        (user.user_email as string | null) ??
-        "";
-      if (id && name) map.set(id, name);
+    for (const body of maps) {
+      for (const user of body.users ?? []) {
+        const id = String(user.user_id ?? "");
+        const name =
+          (user.user_alias as string | null) ??
+          (user.user_email as string | null) ??
+          "";
+        if (id && name) map.set(id, name);
+      }
     }
     return map;
   } catch {
@@ -201,23 +213,50 @@ export const dataProvider: DataProvider = {
   getList: async <TData extends BaseRecord = BaseRecord>(
     params: GetListParams,
   ): Promise<GetListResponse<TData>> => {
-    const { resource, pagination, sorters, filters } = params;
+    const { resource, pagination, sorters, filters, meta } = params;
     assertSupportedResource(resource);
     const currentPage = pagination?.currentPage ?? 1;
     const pageSize = pagination?.pageSize ?? 10;
     const onlyLogical = logicalFilters(filters);
 
     if (resource === "keys") {
-      const body = await litellmRequest<KeyListResponse>("/key/list", {
-        query: {
-          return_full_object: true,
-          page: currentPage,
-          size: Math.min(pageSize, 100), // LiteLLM hard cap
-          ...filtersToQuery(filters, KEY_LIST_FILTERS),
-          ...sorterToQuery(sorters),
-        },
-      });
-      const keys = body.keys ?? [];
+      const baseQuery: Record<string, QueryValue> = {
+        return_full_object: true,
+        ...filtersToQuery(filters, KEY_LIST_FILTERS),
+        ...sorterToQuery(sorters),
+      };
+
+      let keys: LiteLLMRecord[] = [];
+      let totalCount = 0;
+
+      if ((meta as { allPages?: boolean } | undefined)?.allPages === true) {
+        // Walk every page (hard cap 20 x 100 keys) so callers like the
+        // dashboard can aggregate over the complete key set — an admin
+        // session's own keys can sit far beyond page 1 on a busy proxy.
+        // Page 1 reveals total_pages; the remaining pages load in parallel.
+        const first = await litellmRequest<KeyListResponse>("/key/list", {
+          query: { ...baseQuery, page: 1, size: 100 },
+        });
+        keys = [...(first.keys ?? [])];
+        totalCount = first.total_count ?? keys.length;
+        const totalPages = Math.min(first.total_pages ?? 1, 20);
+        const rest = await Promise.all(
+          Array.from({ length: Math.max(0, totalPages - 1) }, (_, index) =>
+            litellmRequest<KeyListResponse>("/key/list", {
+              query: { ...baseQuery, page: index + 2, size: 100 },
+            }),
+          ),
+        );
+        for (const body of rest) {
+          keys.push(...(body.keys ?? []));
+        }
+      } else {
+        const body = await litellmRequest<KeyListResponse>("/key/list", {
+          query: { ...baseQuery, page: currentPage, size: Math.min(pageSize, 100) },
+        });
+        keys = body.keys ?? [];
+        totalCount = body.total_count ?? keys.length;
+      }
       // Resolve owner/team ids to display names (best-effort, in parallel).
       const [userNames, teamNames] = await Promise.all([
         resolveUserNames(keys.map((key) => String(key.user_id ?? ""))),
@@ -230,7 +269,7 @@ export const dataProvider: DataProvider = {
       }));
       return {
         data: enriched.map((key) => withId(key, "token")) as TData[],
-        total: body.total_count ?? keys.length,
+        total: totalCount,
       };
     }
 
