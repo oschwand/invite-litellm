@@ -4,6 +4,7 @@ import { InfoCircleOutlined } from "@ant-design/icons";
 import { Card, Col, Row, Statistic, Table, Tag, Tooltip } from "antd";
 import { Link } from "react-router";
 import { isAllModels } from "../../utils/models";
+import { KeyRowActions } from "../../components";
 import type { LiteLLMIdentity } from "../../providers/auth";
 import type { VirtualKey } from "../keys/list";
 
@@ -205,6 +206,13 @@ export const Dashboard = () => {
               render={(value) =>
                 value ? <Tag color="red">Blocked</Tag> : <Tag color="green">Active</Tag>
               }
+            />
+            <Table.Column<VirtualKey>
+              title="Actions"
+              align="right"
+              render={(_, record) => (
+                <KeyRowActions recordId={String(record.id)} />
+              )}
             />
           </Table>
         </Card>

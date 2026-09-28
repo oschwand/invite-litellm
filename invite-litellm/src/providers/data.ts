@@ -373,10 +373,17 @@ export const dataProvider: DataProvider = {
     const key = String(id);
 
     if (resource === "keys") {
-      const body = await litellmRequest<{ info?: LiteLLMRecord }>("/key/info", {
-        query: { key },
+      // Look up by key hash via /key/list's key_hash filter — deterministic
+      // with the hashes /key/list returns (unlike /key/info, which expects
+      // the raw key).
+      const body = await litellmRequest<KeyListResponse>("/key/list", {
+        query: { return_full_object: true, key_hash: key, size: 1 },
       });
-      return { data: withId(body.info ?? {}, "token") as TData };
+      const info = body.keys?.[0];
+      if (!info) {
+        throw new LiteLLMError(`Key "${key}" was not found.`, 404);
+      }
+      return { data: withId(info, "token") as TData };
     }
 
     if (resource === "teams") {

@@ -1,12 +1,7 @@
-import {
-  DateField,
-  DeleteButton,
-  List,
-  TagField,
-  useTable,
-} from "@refinedev/antd";
+import { DateField, List, TagField, useTable } from "@refinedev/antd";
 import { Table } from "antd";
 import { isAllModels } from "../../utils/models";
+import { KeyRowActions } from "../../components";
 
 export interface VirtualKey {
   id: string;
@@ -103,7 +98,7 @@ export const KeyList = () => {
           title="Actions"
           align="right"
           render={(_, record) => (
-            <DeleteButton type="text" recordItemId={record.id} />
+            <KeyRowActions recordId={String(record.id)} />
           )}
         />
       </Table>
