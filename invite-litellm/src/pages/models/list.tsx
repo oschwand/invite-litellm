@@ -1,4 +1,5 @@
 import { List, TagField, useTable } from "@refinedev/antd";
+import { useCustom } from "@refinedev/core";
 import { Popover, Table, Typography } from "antd";
 import { useSearchParams } from "react-router";
 
@@ -168,6 +169,11 @@ const OtherCosts = ({ parts }: { parts: string[] }) => {
 const formatContext = (value: number | null | undefined) =>
   value == null ? "—" : `${Math.round(value / 1000)}k`;
 
+type TeamInfoResponse = {
+  id?: string;
+  team_info?: { team_alias?: string | null } | null;
+};
+
 export const ModelList = () => {
   // /models?team_id=<id> filters the list to the models allowed for that
   // team (the provider fetches the team's allowlist via /team/info).
@@ -181,8 +187,22 @@ export const ModelList = () => {
     meta: { teamId },
   });
 
+  // Resolve the team's display name for the title when filtering.
+  const { query: teamQuery } = useCustom<TeamInfoResponse>({
+    url: "/team/info",
+    method: "get",
+    config: { query: { team_id: teamId } },
+    queryOptions: { enabled: Boolean(teamId) },
+  });
+  const teamName = (
+    teamQuery.data as TeamInfoResponse | undefined
+  )?.team_info?.team_alias;
+  const title = !teamId
+    ? "All proxy models"
+    : (teamName ?? "Team models");
+
   return (
-    <List title={teamId ? "Models (team-filtered)" : "Models"}>
+    <List title={title}>
       <Table {...tableProps} rowKey="id">
         <Table.Column<ModelDeployment>
           dataIndex="model_name"
