@@ -1,6 +1,7 @@
 import { List, useTable } from "@refinedev/antd";
 import { Table } from "antd";
 import { Link } from "react-router";
+import { isAllModels } from "../../utils/models";
 
 export interface Team {
   id: string;
@@ -54,11 +55,13 @@ export const TeamList = () => {
         <Table.Column<Team>
           dataIndex="models"
           title="Allowed models"
-          render={(value) =>
-            value == null || value.length === 0 ? (
-              "All models"
+          render={(value, record) =>
+            isAllModels(value) ? (
+              <Link to="/models">All models</Link>
             ) : (
-              <Link to="/models">{value.length} models</Link>
+              <Link to={`/models?team_id=${record.team_id}`}>
+                {value.length} models
+              </Link>
             )
           }
         />

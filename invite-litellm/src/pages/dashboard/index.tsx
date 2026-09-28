@@ -2,6 +2,8 @@ import { DateField } from "@refinedev/antd";
 import { useGetIdentity, useList, useCustom } from "@refinedev/core";
 import { InfoCircleOutlined } from "@ant-design/icons";
 import { Card, Col, Row, Statistic, Table, Tag, Tooltip } from "antd";
+import { Link } from "react-router";
+import { isAllModels } from "../../utils/models";
 import type { LiteLLMIdentity } from "../../providers/auth";
 import type { VirtualKey } from "../keys/list";
 
@@ -150,10 +152,14 @@ export const Dashboard = () => {
             <Table.Column<DashboardTeam>
               dataIndex="models"
               title="Models"
-              render={(value) =>
-                value == null || value.length === 0
-                  ? "All models"
-                  : `${value.length} model${value.length > 1 ? "s" : ""}`
+              render={(value, record) =>
+                isAllModels(value) ? (
+                  <Link to="/models">All models</Link>
+                ) : (
+                  <Link to={`/models?team_id=${record.team_id}`}>
+                    {value.length} model{value.length > 1 ? "s" : ""}
+                  </Link>
+                )
               }
             />
           </Table>

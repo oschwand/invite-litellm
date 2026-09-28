@@ -1,5 +1,6 @@
 import { List, TagField, useTable } from "@refinedev/antd";
 import { Table } from "antd";
+import { useSearchParams } from "react-router";
 
 export interface ModelDeployment {
   id: string;
@@ -24,10 +25,16 @@ const formatContext = (value: number | null | undefined) =>
   value == null ? "—" : `${Math.round(value / 1000)}k`;
 
 export const ModelList = () => {
+  // /models?team_id=<id> filters the list to the models allowed for that
+  // team (forwarded to /model/info as the teamId param by the provider).
+  const [searchParams] = useSearchParams();
+  const teamId = searchParams.get("team_id") ?? undefined;
+
   const { tableProps } = useTable<ModelDeployment>({
     resource: "models",
     syncWithLocation: true,
     pagination: { mode: "client" },
+    meta: { teamId },
   });
 
   return (

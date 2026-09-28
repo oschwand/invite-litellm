@@ -6,6 +6,7 @@ import {
   useTable,
 } from "@refinedev/antd";
 import { Table } from "antd";
+import { isAllModels } from "../../utils/models";
 
 export interface VirtualKey {
   id: string;
@@ -93,7 +94,7 @@ export const KeyList = () => {
           dataIndex="models"
           title="Models"
           render={(value) =>
-            value == null || value.length === 0
+            isAllModels(value)
               ? "All models"
               : `${value.length} model${value.length > 1 ? "s" : ""}`
           }

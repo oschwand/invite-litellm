@@ -16,6 +16,7 @@ import type {
   UpdateResponse,
 } from "@refinedev/core";
 import { API_URL } from "./constants";
+import { isAllModels } from "../utils/models";
 import { LiteLLMError, litellmRequest, type QueryValue } from "./litellm";
 
 // ---------------------------------------------------------------------------
@@ -334,9 +335,29 @@ export const dataProvider: DataProvider = {
       };
     }
 
-    // models
+    // models — when meta.teamId is set (linked from a team's Models cell),
+    // fetch the team's allowlist via /team/info and filter by model_name.
+    // The /model/info?teamId server param is NOT usable for this: it filters
+    // by deployment access (direct_access / access_via_team_ids), not by the
+    // team's allowed-models list. An unrestricted team (models null/empty or
+    // just the "all-proxy-models" codename) gets the full list.
+    const teamId = (meta as { teamId?: string } | undefined)?.teamId;
+    let allowedModels: string[] | undefined;
+    if (teamId) {
+      const teamBody = await litellmRequest<{
+        team_info?: { models?: string[] | null };
+      }>("/team/info", { query: { team_id: teamId } });
+      const teamModels = teamBody.team_info?.models ?? null;
+      if (teamModels && !isAllModels(teamModels)) {
+        allowedModels = teamModels;
+      }
+    }
     const body = await litellmRequest<ModelInfoResponse>("/model/info", {});
-    const models = body.data ?? [];
+    const models = allowedModels
+      ? (body.data ?? []).filter((model) =>
+          allowedModels!.includes(String(model.model_name ?? "")),
+        )
+      : (body.data ?? []);
     const list = applyClientSide(models, sorters, onlyLogical);
     return {
       data: list.map((model) => withId(model, "model_name")) as TData[],
