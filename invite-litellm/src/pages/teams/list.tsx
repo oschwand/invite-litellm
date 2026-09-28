@@ -30,7 +30,9 @@ export const TeamList = () => {
         <Table.Column<Team>
           dataIndex="team_alias"
           title="Name"
-          render={(value) => value || "—"}
+          render={(value, record) => (
+            <Link to={`/team/${record.team_id}`}>{value || "—"}</Link>
+          )}
         />
         <Table.Column<Team>
           dataIndex="key_count"

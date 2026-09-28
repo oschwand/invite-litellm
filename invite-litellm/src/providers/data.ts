@@ -17,6 +17,7 @@ import type {
 } from "@refinedev/core";
 import { API_URL } from "./constants";
 import { isAllModels } from "../utils/models";
+import { loadSession } from "./session";
 import { LiteLLMError, litellmRequest, type QueryValue } from "./litellm";
 
 // ---------------------------------------------------------------------------
@@ -263,11 +264,42 @@ export const dataProvider: DataProvider = {
         resolveUserNames(keys.map((key) => String(key.user_id ?? ""))),
         resolveTeamNames(keys.map((key) => String(key.team_id ?? ""))),
       ]);
-      const enriched = keys.map((key) => ({
-        ...key,
-        owner_name: userNames.get(String(key.user_id ?? "")) ?? null,
-        team_name: teamNames.get(String(key.team_id ?? "")) ?? null,
-      }));
+      // /user/list lookups skip users with no alias/email — notably the
+      // caller's own. Fall back to /user/info on the session user (always
+      // permitted for oneself): alias, then email from the record/JWT.
+      const session = loadSession();
+      let selfName: string | null = null;
+      const selfUnresolved =
+        session !== null &&
+        keys.some(
+          (key) =>
+            String(key.user_id ?? "") === session.userId &&
+            !userNames.has(session.userId),
+        );
+      if (selfUnresolved) {
+        try {
+          const body = await litellmRequest<{
+            user_info?: { user_alias?: string | null; user_email?: string | null };
+          }>("/user/info", { query: { user_id: session.userId } });
+          selfName =
+            body.user_info?.user_alias ??
+            body.user_info?.user_email ??
+            session.userEmail ??
+            null;
+        } catch {
+          selfName = session.userEmail || null;
+        }
+      }
+      const enriched = keys.map((key) => {
+        const ownerId = String(key.user_id ?? "");
+        return {
+          ...key,
+          owner_name:
+            userNames.get(ownerId) ??
+            (selfName !== null && ownerId === session?.userId ? selfName : null),
+          team_name: teamNames.get(String(key.team_id ?? "")) ?? null,
+        };
+      });
       return {
         data: enriched.map((key) => withId(key, "token")) as TData[],
         total: totalCount,
