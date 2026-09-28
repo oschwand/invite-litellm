@@ -1,6 +1,7 @@
 import { DateField } from "@refinedev/antd";
-import { useCustom, useGetIdentity, useList } from "@refinedev/core";
-import { Card, Col, Row, Statistic, Table, Tag } from "antd";
+import { useGetIdentity, useList, useCustom } from "@refinedev/core";
+import { InfoCircleOutlined } from "@ant-design/icons";
+import { Card, Col, Row, Statistic, Table, Tag, Tooltip } from "antd";
 import type { LiteLLMIdentity } from "../../providers/auth";
 import type { VirtualKey } from "../keys/list";
 
@@ -90,7 +91,16 @@ export const Dashboard = () => {
             </Col>
             <Col xs={12} md={8}>
               <Statistic
-                title="My budget"
+                title={
+                  <span>
+                    My budget{" "}
+                    <Tooltip title="This is the global budget limit for your user account. It can be unlimited at this level, while budget limits set at the team level and on individual virtual keys are still enforced.">
+                      <InfoCircleOutlined
+                        style={{ color: "rgba(0, 0, 0, 0.45)", cursor: "help" }}
+                      />
+                    </Tooltip>
+                  </span>
+                }
                 value={
                   myInfo?.max_budget == null
                     ? "Unlimited"
