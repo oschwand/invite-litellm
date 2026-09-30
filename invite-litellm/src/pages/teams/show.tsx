@@ -1,4 +1,4 @@
-import { Card, Descriptions, Table } from "antd";
+import { Card, Descriptions, Table, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 import { Link, useParams } from "react-router";
 import { useCustom, useGetIdentity, useList } from "@refinedev/core";
@@ -15,6 +15,7 @@ type TeamInfoResponse = {
     max_budget?: number | null;
     spend?: number | null;
     models?: string[] | null;
+    metadata?: { invite_code?: string | null } | null;
     team_member_budget_table?: { max_budget?: number | null } | null;
     members_with_roles?: {
       user_id: string;
@@ -119,6 +120,14 @@ export const TeamShow = () => {
   const team =
     (teamQuery.data as TeamInfoResponse | undefined)?.team_info ?? null;
 
+  // Invite link — only teams created with an invite code carry one
+  // (metadata.invite_code, set at creation by the invite-link form).
+  const inviteCode = team?.metadata?.invite_code ?? null;
+  const inviteUrl =
+    inviteCode && teamId
+      ? `${window.location.origin}/invite/${teamId}/${inviteCode}`
+      : null;
+
   // The caller's role in this team — admins additionally see every key.
   const { query: memberQuery } = useCustom<TeamMemberMe>({
     url: `/team/${teamId}/members/me`,
@@ -208,6 +217,18 @@ export const TeamShow = () => {
               </Link>
             )}
           </Descriptions.Item>
+          {inviteUrl ? (
+            <Descriptions.Item label="Invite link">
+              <Typography.Text
+                copyable={{ text: inviteUrl }}
+                style={{ fontFamily: "monospace" }}
+              >
+                <a href={inviteUrl} target="_blank" rel="noopener">
+                  {inviteCode}
+                </a>
+              </Typography.Text>
+            </Descriptions.Item>
+          ) : null}
         </Descriptions>
       </Card>
 
