@@ -13,11 +13,28 @@ export interface VirtualKey {
   owner_name: string | null;
   team_id: string | null;
   team_name: string | null;
+  organization_id: string | null;
   spend: number | null;
+  soft_budget: number | null;
   max_budget: number | null;
+  budget_duration: string | null;
+  budget_fallbacks: Record<string, unknown> | null;
   expires: string | null;
   blocked: boolean | null;
   models: string[] | null;
+  aliases: Record<string, string> | null;
+  config: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
+  permissions: Record<string, boolean> | null;
+  model_max_budget: Record<string, number> | null;
+  allowed_cache_controls: string[] | null;
+  allowed_routes: string[] | null;
+  key_type: string | null;
+  tpm_limit: number | null;
+  rpm_limit: number | null;
+  max_parallel_requests: number | null;
+  model_tpm_limit: Record<string, number> | null;
+  model_rpm_limit: Record<string, number> | null;
 }
 
 const usd = (value: number | null | undefined) =>
@@ -102,9 +119,7 @@ export const KeyList = () => {
         <Table.Column<VirtualKey>
           title="Actions"
           align="right"
-          render={(_, record) => (
-            <KeyRowActions recordId={String(record.id)} blocked={record.blocked} />
-          )}
+          render={(_, record) => <KeyRowActions record={record} />}
         />
       </Table>
     </List>
