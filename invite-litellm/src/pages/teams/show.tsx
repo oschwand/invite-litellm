@@ -2,7 +2,7 @@ import { Card, Descriptions, Table, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 import { Link, useParams } from "react-router";
 import { useCustom, useGetIdentity, useList } from "@refinedev/core";
-import { DateField, List, TagField } from "@refinedev/antd";
+import { DateField, EditButton, List, TagField } from "@refinedev/antd";
 import { isAllModels } from "../../utils/models";
 import { KeyRowActions } from "../../components";
 import type { LiteLLMIdentity } from "../../providers/auth";
@@ -15,7 +15,7 @@ type TeamInfoResponse = {
     max_budget?: number | null;
     spend?: number | null;
     models?: string[] | null;
-    metadata?: { invite_code?: string | null } | null;
+    metadata?: (Record<string, unknown> & { invite_code?: string | null }) | null;
     team_member_budget_table?: { max_budget?: number | null } | null;
     members_with_roles?: {
       user_id: string;
@@ -189,6 +189,7 @@ export const TeamShow = () => {
       <Card
         loading={teamQuery.isLoading}
         title={team?.team_alias ?? "Team"}
+        extra={<EditButton resource="teams" recordItemId={teamId} />}
         style={{ marginBottom: 16 }}
       >
         <Descriptions size="small" column={{ xs: 1, md: 4 }}>

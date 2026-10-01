@@ -37,6 +37,7 @@ import { Dashboard } from "./pages/dashboard";
 import { KeyList } from "./pages/keys/list";
 import { KeyEdit } from "./pages/keys/edit";
 import { TeamList } from "./pages/teams/list";
+import { TeamEdit } from "./pages/teams/edit";
 import { TeamShow } from "./pages/teams/show";
 import { UserList } from "./pages/users/list";
 import { ModelList } from "./pages/models/list";
@@ -69,6 +70,7 @@ function App() {
                   {
                     name: "teams",
                     list: "/teams",
+                    edit: "/teams/edit/:id",
                     meta: { icon: <TeamOutlined /> },
                   },
                   {
@@ -115,6 +117,7 @@ function App() {
                     <Route path="/keys" element={<KeyList />} />
                     <Route path="/keys/edit/:id" element={<KeyEdit />} />
                     <Route path="/teams" element={<TeamList />} />
+                    <Route path="/teams/edit/:id" element={<TeamEdit />} />
                     <Route path="/team/:team_id" element={<TeamShow />} />
                     <Route path="/users" element={<UserList />} />
                     <Route path="/models" element={<ModelList />} />

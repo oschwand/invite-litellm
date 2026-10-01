@@ -434,7 +434,22 @@ export const dataProvider: DataProvider = {
         "/team/info",
         { query: { team_id: key } },
       );
-      return { data: withId(body.team_info ?? {}, "team_id") as TData };
+      const info = body.team_info ?? {};
+      // Flatten the nested member-budget row so form auto-sync works with
+      // the flat team_member_budget field name the update endpoint expects.
+      const memberBudget =
+        (
+          info.team_member_budget_table as
+            | { max_budget?: number | null }
+            | null
+            | undefined
+        )?.max_budget ?? null;
+      return {
+        data: withId(
+          { ...info, team_member_budget: memberBudget },
+          "team_id",
+        ) as TData,
+      };
     }
 
     if (resource === "users") {

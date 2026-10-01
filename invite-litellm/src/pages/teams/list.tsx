@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { CreateButton, List, useTable } from "@refinedev/antd";
+import { CreateButton, EditButton, List, useTable } from "@refinedev/antd";
 import { useCreate } from "@refinedev/core";
 import { App, Form, Input, InputNumber, Modal, Switch, Table, Typography } from "antd";
 import { Link } from "react-router";
 import { isAllModels } from "../../utils/models";
+import { randomInviteCode } from "../../utils/invite";
 
 export interface Team {
   id: string;
@@ -18,15 +19,6 @@ export interface Team {
 
 const usd = (value: number | null | undefined) =>
   value == null ? "—" : `$${value.toFixed(2)}`;
-
-// 8-char cryptographically random invite code — the format the invite
-// redemption backend expects in {origin}/invite/{team_id}/{code}.
-function randomInviteCode(length = 8): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  const values = new Uint32Array(length);
-  crypto.getRandomValues(values);
-  return Array.from(values, (value) => chars[value % chars.length]).join("");
-}
 
 interface TeamFormValues {
   name: string;
@@ -159,6 +151,17 @@ export const TeamList = () => {
               </Link>
             )
           }
+        />
+        <Table.Column<Team>
+          title="Actions"
+          align="right"
+          render={(_, record) => (
+            <EditButton
+              type="text"
+              size="small"
+              recordItemId={record.team_id}
+            />
+          )}
         />
       </Table>
 
