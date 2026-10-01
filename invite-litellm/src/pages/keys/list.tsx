@@ -103,7 +103,7 @@ export const KeyList = () => {
           title="Actions"
           align="right"
           render={(_, record) => (
-            <KeyRowActions recordId={String(record.id)} />
+            <KeyRowActions recordId={String(record.id)} blocked={record.blocked} />
           )}
         />
       </Table>

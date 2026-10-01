@@ -92,7 +92,9 @@ const keyColumns: TableColumnsType<VirtualKey> = [
   {
     title: "Actions",
     align: "right",
-    render: (_, record) => <KeyRowActions recordId={String(record.id)} />,
+    render: (_, record) => (
+      <KeyRowActions recordId={String(record.id)} blocked={record.blocked} />
+    ),
   },
 ];
 
