@@ -60,13 +60,17 @@ async def _lifespan(_: FastAPI):
 app = FastAPI(title="invite-litellm", lifespan=_lifespan)
 
 
-@app.get("/invite/{team_id}/{invite_code}")
-async def invite(team_id: str, invite_code: str) -> FileResponse:
-    del team_id, invite_code
+def _index_response() -> FileResponse:
     index = _STATIC_ROOT / "index.html"
     if not index.is_file():
         raise HTTPException(status_code=404, detail="Not found")
     return FileResponse(index, headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/invite/{team_id}/{invite_code}")
+async def invite(team_id: str, invite_code: str) -> FileResponse:
+    del team_id, invite_code
+    return _index_response()
 
 
 async def _litellm(method: str, path: str, *, json_body: dict[str, Any] | None = None, params: dict[str, str] | None = None) -> tuple[int, Any]:
@@ -310,11 +314,15 @@ async def config() -> dict[str, str]:
 @app.get("/{file_path:path}")
 async def serve_static(file_path: str) -> FileResponse:
     if file_path in ("", "index.html"):
-        index = _STATIC_ROOT / "index.html"
-        if not index.is_file():
-            raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(index, headers={"Cache-Control": "no-cache"})
+        return _index_response()
     target = (_STATIC_ROOT / file_path).resolve()
-    if not target.is_relative_to(_STATIC_ROOT) or not target.is_file():
+    if not target.is_relative_to(_STATIC_ROOT):
         raise HTTPException(status_code=404, detail="Not found")
-    return FileResponse(target)
+    if target.is_file():
+        return FileResponse(target)
+    # Unknown extensionless paths are SPA routes (/dashboard, /keys, …):
+    # serve the shell so client-side routing survives hard loads and
+    # refreshes. Missing assets keep their 404.
+    if target.suffix == "":
+        return _index_response()
+    raise HTTPException(status_code=404, detail="Not found")
