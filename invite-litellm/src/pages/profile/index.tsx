@@ -1,7 +1,7 @@
 import { useGetIdentity, useLogout } from "@refinedev/core";
 import { LogoutOutlined } from "@ant-design/icons";
 import { Avatar, Button, Card, Descriptions, Tag, Typography } from "antd";
-import { API_URL } from "../../providers/constants";
+import { getApiUrl } from "../../providers/constants";
 import type { LiteLLMIdentity } from "../../providers/auth";
 
 const { Text } = Typography;
@@ -80,7 +80,7 @@ export const Profile = () => {
             {new Date(identity.expiresAt * 1000).toLocaleString()}
           </Descriptions.Item>
           <Descriptions.Item label="Server">
-            <Text style={{ fontFamily: "monospace" }}>{API_URL}</Text>
+            <Text style={{ fontFamily: "monospace" }}>{getApiUrl()}</Text>
           </Descriptions.Item>
         </Descriptions>
         <Button

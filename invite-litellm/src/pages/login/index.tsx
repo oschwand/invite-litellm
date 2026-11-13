@@ -1,5 +1,6 @@
 import { useLogin } from "@refinedev/core";
 import { Button, Card, Form, Input } from "antd";
+import { ServerStatusBanner } from "../../components/server-status";
 
 interface LoginFormValues {
   username: string;
@@ -13,12 +14,17 @@ export const Login = () => {
   return (
     <div
       style={{
-        height: "100vh",
+        minHeight: "100vh",
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
+        padding: 16,
       }}
     >
+      <div style={{ width: 400 }}>
+        <ServerStatusBanner />
+      </div>
       <Card
         title="Sign in to your account"
         style={{ width: 400 }}

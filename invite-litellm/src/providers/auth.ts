@@ -1,5 +1,5 @@
 import type { AuthProvider } from "@refinedev/core";
-import { API_URL } from "./constants";
+import { getApiUrl } from "./constants";
 import {
   clearSession,
   extractErrorMessage,
@@ -30,7 +30,7 @@ export const authProvider: AuthProvider = {
     }
 
     try {
-      const response = await fetch(`${API_URL}/v2/login`, {
+      const response = await fetch(`${getApiUrl()}/v2/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: name, password }),
@@ -68,7 +68,7 @@ export const authProvider: AuthProvider = {
         success: false,
         error: {
           name: "LoginError",
-          message: `Could not reach the LiteLLM server at ${API_URL}. Is it running?`,
+          message: `Could not reach the LiteLLM server at ${getApiUrl()}. Is it running?`,
         },
       };
     }

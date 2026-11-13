@@ -11,7 +11,7 @@ import {
 } from "@refinedev/antd";
 import "@refinedev/antd/dist/reset.css";
 
-import { ApiOutlined } from "@ant-design/icons";
+import { ApiOutlined, MessageOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 
 import { App as AntdApp } from "antd";
 import {
@@ -20,8 +20,7 @@ import {
   TeamOutlined,
   UserOutlined,
   RobotOutlined,
-} from "@ant-design/icons";
-import { BrowserRouter, Route, Routes, Navigate, Outlet } from "react-router";
+} from "@ant-design/icons";import { BrowserRouter, Route, Routes, Navigate, Outlet } from "react-router";
 import routerProvider, {
   NavigateToResource,
   CatchAllNavigate,
@@ -31,8 +30,12 @@ import routerProvider, {
 import { dataProvider } from "./providers/data";
 import { ColorModeContextProvider } from "./contexts/color-mode";
 import { Header } from "./components/header";
+import { AppFooter } from "./components/footer";
+import { ServerStatusBanner } from "./components/server-status";
 import { Login } from "./pages/login";
 import { InviteRedeem } from "./pages/invite";
+import { Playground } from "./pages/playground";
+import { Help } from "./pages/help";
 import { Profile } from "./pages/profile";
 import { Dashboard } from "./pages/dashboard";
 import { KeyList } from "./pages/keys/list";
@@ -43,6 +46,7 @@ import { TeamShow } from "./pages/teams/show";
 import { UserList } from "./pages/users/list";
 import { ModelList } from "./pages/models/list";
 import { authProvider } from "./providers/auth";
+import { accessControlProvider } from "./providers/access";
 
 function App() {
   return (
@@ -56,6 +60,7 @@ function App() {
                 notificationProvider={useNotificationProvider}
                 routerProvider={routerProvider}
                 authProvider={authProvider}
+                accessControlProvider={accessControlProvider}
                 resources={[
                   {
                     name: "dashboard",
@@ -84,6 +89,16 @@ function App() {
                     list: "/models",
                     meta: { icon: <RobotOutlined /> },
                   },
+                  {
+                    name: "playground",
+                    list: "/playground",
+                    meta: { label: "Playground", icon: <MessageOutlined /> },
+                  },
+                  {
+                    name: "help",
+                    list: "/help",
+                    meta: { label: "Help", icon: <QuestionCircleOutlined /> },
+                  },
                 ]}
                 options={{
                   syncWithLocation: true,
@@ -101,6 +116,7 @@ function App() {
                         <ThemedLayout
                           Header={Header}
                           Sider={ThemedSider}
+                          Footer={AppFooter}
                           Title={({ collapsed }) => (
                             <ThemedTitle
                               collapsed={collapsed}
@@ -109,6 +125,7 @@ function App() {
                             />
                           )}
                         >
+                          <ServerStatusBanner />
                           <Outlet />
                         </ThemedLayout>
                       </Authenticated>
@@ -122,6 +139,8 @@ function App() {
                     <Route path="/team/:team_id" element={<TeamShow />} />
                     <Route path="/users" element={<UserList />} />
                     <Route path="/models" element={<ModelList />} />
+                    <Route path="/playground" element={<Playground />} />
+                    <Route path="/help" element={<Help />} />
                     <Route path="/profile" element={<Profile />} />
                   </Route>
                   <Route index element={<Navigate to="/dashboard" replace />} />

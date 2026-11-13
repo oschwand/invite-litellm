@@ -65,4 +65,11 @@ const invitePostProxy = (): Plugin => ({
 
 export default defineConfig({
   plugins: [react(), invitePostProxy()],
+  server: {
+    proxy: {
+      // Same-origin GET /config from the Python backend in dev (same setup
+      // as the Alpine app's dev server) — runtime LITELLM_URL + version.
+      "/config": { target: INVITE_BACKEND_URL, changeOrigin: true },
+    },
+  },
 });

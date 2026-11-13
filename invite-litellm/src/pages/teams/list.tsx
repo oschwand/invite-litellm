@@ -15,6 +15,7 @@ export interface Team {
   member_budget: number | null;
   spend: number | null;
   models: string[] | null;
+  invite_code: string | null;
 }
 
 const usd = (value: number | null | undefined) =>
@@ -149,6 +150,31 @@ export const TeamList = () => {
               <Link to={`/models?team_id=${record.team_id}`}>
                 {value.length} models
               </Link>
+            )
+          }
+        />
+        <Table.Column<Team>
+          dataIndex="invite_code"
+          title="Invite link"
+          render={(value, record) =>
+            value ? (
+              <>
+                <Typography.Link
+                  href={`${window.location.origin}/invite/${record.team_id}/${value}`}
+                  target="_blank"
+                  rel="noopener"
+                  style={{ marginRight: 8 }}
+                >
+                  {value}
+                </Typography.Link>
+                <Typography.Text
+                  copyable={{
+                    text: `${window.location.origin}/invite/${record.team_id}/${value}`,
+                  }}
+                />
+              </>
+            ) : (
+              "—"
             )
           }
         />

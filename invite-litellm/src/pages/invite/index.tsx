@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router";
 import { useInvalidate } from "@refinedev/core";
 import { useDocumentTitle } from "@refinedev/react-router";
 import { Alert, Button, Card, Form, Input, Tabs, Typography } from "antd";
-import { API_URL } from "../../providers/constants";
+import { getApiUrl } from "../../providers/constants";
 import { litellmRequest } from "../../providers/litellm";
 import {
   extractErrorMessage,
@@ -93,7 +93,7 @@ async function postInvite(
 async function signInRequest(values: SignInValues): Promise<LiteLLMSession> {
   let response: Response;
   try {
-    response = await fetch(`${API_URL}/v2/login`, {
+    response = await fetch(`${getApiUrl()}/v2/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -103,7 +103,7 @@ async function signInRequest(values: SignInValues): Promise<LiteLLMSession> {
     });
   } catch {
     throw new Error(
-      `Could not reach the LiteLLM server at ${API_URL}. Is it running?`,
+      `Could not reach the LiteLLM server at ${getApiUrl()}. Is it running?`,
     );
   }
   const body: unknown = await response.json().catch(() => null);

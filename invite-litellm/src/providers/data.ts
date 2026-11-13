@@ -15,7 +15,7 @@ import type {
   UpdateParams,
   UpdateResponse,
 } from "@refinedev/core";
-import { API_URL } from "./constants";
+import { getApiUrl } from "./constants";
 import { isAllModels } from "../utils/models";
 import { loadSession } from "./session";
 import { LiteLLMError, litellmRequest, type QueryValue } from "./litellm";
@@ -340,6 +340,10 @@ export const dataProvider: DataProvider = {
               | { max_budget?: number | null }
               | null
               | undefined;
+            const metadata = info.metadata as
+              | { invite_code?: string | null }
+              | null
+              | undefined;
             return {
               ...team,
               key_count: Array.isArray(body.keys) ? body.keys.length : null,
@@ -347,6 +351,7 @@ export const dataProvider: DataProvider = {
               member_budget: memberBudget?.max_budget ?? null,
               spend: (info.spend as number | null) ?? null,
               models: (info.models as string[] | null) ?? null,
+              invite_code: metadata?.invite_code ?? null,
             };
           } catch {
             return {
@@ -356,6 +361,7 @@ export const dataProvider: DataProvider = {
               member_budget: null,
               spend: null,
               models: null,
+              invite_code: null,
             };
           }
         }),
@@ -569,7 +575,7 @@ export const dataProvider: DataProvider = {
     return { data: { id } as TData };
   },
 
-  getApiUrl: () => API_URL,
+  getApiUrl: () => getApiUrl(),
 
   custom: async ({ url, method, payload, query }) =>
     litellmRequest(url, {

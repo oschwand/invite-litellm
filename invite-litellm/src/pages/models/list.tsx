@@ -1,6 +1,8 @@
+import { useMemo, useState } from "react";
 import { List, TagField, useTable } from "@refinedev/antd";
 import { useCustom } from "@refinedev/core";
-import { Popover, Table, Typography } from "antd";
+import { SearchOutlined } from "@ant-design/icons";
+import { Input, Popover, Table, Typography } from "antd";
 import { useSearchParams } from "react-router";
 
 export interface ModelDeployment {
@@ -236,6 +238,20 @@ export const ModelList = () => {
     keyTeamQuery.data as TeamInfoResponse | undefined
   )?.team_info?.team_alias;
 
+  // Free-text filter over the fetched list (name or type), client-side —
+  // the models endpoint returns everything in one call anyway.
+  const [search, setSearch] = useState("");
+  const filteredModels = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    const data = tableProps.dataSource ?? [];
+    if (needle === "") return tableProps.dataSource;
+    return data.filter(
+      (model) =>
+        model.model_name.toLowerCase().includes(needle) ||
+        (model.model_info?.mode ?? "").toLowerCase().includes(needle),
+    );
+  }, [tableProps.dataSource, search]);
+
   let title: React.ReactNode = "All proxy models";
   if (teamId) {
     title = teamName ?? "Team models";
@@ -258,8 +274,20 @@ export const ModelList = () => {
   }
 
   return (
-    <List title={title}>
-      <Table {...tableProps} rowKey="id">
+    <List
+      title={title}
+      headerButtons={
+        <Input
+          allowClear
+          placeholder="Filter by name or type"
+          prefix={<SearchOutlined style={{ opacity: 0.4 }} />}
+          style={{ width: 220 }}
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+      }
+    >
+      <Table {...tableProps} dataSource={filteredModels} rowKey="id">
         <Table.Column<ModelDeployment>
           dataIndex="model_name"
           title="Model"

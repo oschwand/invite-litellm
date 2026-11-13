@@ -1,5 +1,5 @@
 import type { HttpError } from "@refinedev/core";
-import { API_URL } from "./constants";
+import { getApiUrl } from "./constants";
 import { extractErrorMessage, loadSession } from "./session";
 
 export type QueryValue = string | number | boolean | undefined;
@@ -27,7 +27,7 @@ export async function litellmRequest<T>(
     throw new LiteLLMError("Not signed in — your session has expired.", 401);
   }
 
-  const url = new URL(`${API_URL}${path}`);
+  const url = new URL(`${getApiUrl()}${path}`);
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value !== undefined) {
       url.searchParams.set(key, String(value));
@@ -46,7 +46,7 @@ export async function litellmRequest<T>(
     });
   } catch {
     throw new LiteLLMError(
-      `Could not reach the LiteLLM server at ${API_URL}. Is it running?`,
+      `Could not reach the LiteLLM server at ${getApiUrl()}. Is it running?`,
       0,
     );
   }
