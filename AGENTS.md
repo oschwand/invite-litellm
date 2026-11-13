@@ -2,65 +2,81 @@
 
 ## What this is
 
-`invite-litellm` is a monorepo-style project with two independent parts:
+`invite-litellm` is self-service key management for a [LiteLLM](https://docs.litellm.ai/) proxy: admins create teams and share invite links (`/invite/<team_id>/<code>`); members redeem them (sign in or create an account) and manage their own virtual keys. Two independent parts in one git repo:
 
-- **`src/invite_litellm/`** — the Python `uv` backend (FastAPI), two jobs: (1) serve the frontend production build from `frontend/dist/` — a `GET /invite/{team_id}/{invite_code}` route serves `index.html` **directly** (no redirect, so the invite URL stays in the address bar for the SPA to parse) and a catch-all `GET /{file_path:path}` serves static files (`FileResponse`, 404 on missing files and path-traversal attempts); it also exposes `GET /config` returning `{"litellm_url": ..., "version": ...}` — registered *before* the catch-all, or it would be shadowed — which the SPA fetches on load to adopt the backend's runtime `LITELLM_URL` and to display the app version in the SPA footer (single source of truth: `[project] version` in `pyproject.toml`, read via `importlib.metadata` from the installed dist-info, so it also works in the container where no source tree is present); (2) redeem invite links: `POST /invite/{team_id}/{invite_key}` creates a virtual key on the LiteLLM proxy server-side. `main()` runs it with uvicorn on the `HOST`/`PORT` env vars (defaults `127.0.0.1:8000`; the Dockerfile sets `HOST=0.0.0.0`). At startup the lifespan pings unauthenticated `GET {LITELLM_URL}/health/liveliness` (5 s timeout, any HTTP response = reachable — same semantics as the frontend's check) and logs an INFO line on success or a warning if the proxy is down; startup is never blocked. The module's logger carries its own stderr handler (uvicorn-compatible format, guarded against duplicate handlers on reload) since uvicorn configures no root handlers. Requires `npm run build` in `frontend/` first.
-- **`frontend/`** — the SPA: a Vite 8 + TypeScript 6 + Alpine.js app that logs into a LiteLLM proxy server and manages its virtual keys. **Read `frontend/AGENTS.md` before any frontend work** — it contains hard-won knowledge about the LiteLLM API (hidden login endpoint, auth via the JWT `key` claim, key-regeneration simulation, error-shape quirks) that is not discoverable from the code or the LiteLLM OpenAPI spec.
+- **`backend/`** — the Python `uv` project (`src/` layout, package `invite_litellm`, FastAPI, Python ≥ 3.13). Two jobs: serve the built SPA and redeem invites server-side using the proxy's master key. The version in `backend/pyproject.toml` is the single source of truth, surfaced at runtime via `importlib.metadata` → `GET /config` → SPA footer (works in the container where no source tree exists).
+- **`frontend/`** — the SPA: **Refine v5 + React 19 + TypeScript + Ant Design 5 + Vite 6** (the original Alpine.js app was removed — "refine is the new frontend"). **Read `frontend/AGENTS.md` before any frontend work** — it contains hard-won LiteLLM API knowledge (the hidden `/v2/login` endpoint, auth via the JWT `key` claim, key-regeneration simulation, the three error-body shapes) that is not discoverable from the code or the LiteLLM OpenAPI spec.
 
-The Python side serves the built SPA **and** implements the invite-redemption backend that the SPA's invite modal calls (frontend state/logic is still all in `frontend/`).
+Also at the root: `Dockerfile` (multi-stage image — **currently stale**, see Gotchas), `compose.yml` (runs the prebuilt ghcr.io image), `.github/workflows/docker.yml` (multi-arch publish to `ghcr.io/oschwand/invite-litellm` on `v*.*.*` tags or manual dispatch), and `README.md` (user-facing — keep it in sync when commands or layout change).
 
-### Invite redemption: `POST /invite/{team_id}/{invite_key}` (in `app.py`)
+## Backend
 
-Validates the invite code against the team's `metadata.invite_code` (`GET /team/info`, admin auth) → 404 unknown team, 403 bad code. Then two caller modes (matching the frontend invite modal):
+The whole package is two files: `backend/src/invite_litellm/app.py` (FastAPI app, all routes and LiteLLM calls) and `__init__.py` (`main()` runs uvicorn on `HOST`/`PORT`, defaults `127.0.0.1:8000`; the Dockerfile sets `HOST=0.0.0.0`).
 
-- **`Authorization: Bearer <virtual key>`** (signed-in user): resolves the caller's `user_id` via `GET /key/info?key=...` (401 on unknown key).
-- **No auth + JSON body `{full_name, email, password}`** (signup): creates the user with `POST /user/new` (`auto_create_key: false`) then sets the password via `POST /user/update` (LiteLLM's `/user/new` has no password field; duplicate email → clean 409 "already exists — sign in instead").
+Routes, in registration order (order matters — see Gotchas):
 
-Both modes then enforce **one key per user per team**: `_user_team_key_exists` walks `GET /key/list` (master key, `return_full_object=true`, paginated 100/page, hard cap 20 pages) matching `user_id`+`team_id`; a hit aborts with a clean **409 "You already have a virtual key for this team"** *before* `team/member_add` runs (the frontend's invite modal surfaces the `detail` via `extractErrorMessage`; deleting/regenerating the old key re-enables redemption). Then `POST /team/member_add` ("already in team" errors tolerated → idempotent) and `POST /key/generate` with the team's member budget (`team_member_budget_table.max_budget`) as `max_budget` and `models: []` (empty list — LiteLLM treats a key with no model restriction as inheriting all models). Returns `{key, user_id, team_id}` — the plaintext `sk-...` key is shown once by the frontend. All upstream LiteLLM calls use the master key; errors are re-raised as FastAPI `detail` strings the frontend's `extractErrorMessage` understands (502 = upstream failure, 503 = missing master key config).
+1. `GET /invite/{team_id}/{invite_code}` — serves `index.html` **directly** (no redirect, so the invite URL stays in the address bar for the SPA to parse), `Cache-Control: no-cache`.
+2. `POST /invite/{team_id}/{invite_key}` — invite redemption (below).
+3. `GET /config` — `{litellm_url, version}`; the SPA fetches it on load to adopt the backend's runtime `LITELLM_URL` and display the version in the footer.
+4. `GET /{file_path:path}` — catch-all static server for the SPA build (`FileResponse`; 404 on missing files and on path traversal via `is_relative_to`).
 
-During invite validation the backend also **ensures team members can manage their own keys**: LiteLLM blocks team members from `/key/generate`/`/key/delete` (401 "Team member does not have permissions for endpoint") unless the team's `team_member_permissions` list includes those routes. `createTeam()` in the frontend now sends `team_member_permissions: ['/key/generate', '/key/delete']` on `POST /team/new`; `_check_invite` additionally back-fills missing routes via `POST /team/permissions_update` (idempotent, preserves existing entries) so teams created before this — whose invite links are already shared — also work. (Observed quirk: the session key from `POST /v2/login` may be invalidated after key-management calls — subsequent requests 401 "No api key passed in" until re-login.)
+### Invite redemption: `POST /invite/{team_id}/{invite_key}`
 
-Config comes from env vars, with `<repo root>/.env` loaded at import via `python-dotenv` (real env vars win): `LITELLM_URL` (default `http://localhost:4000`), `LITELLM_MASTER_KEY` (required for the POST route), `STATIC_DIR`. The `.env` is gitignored.
+Returns 503 when `LITELLM_MASTER_KEY` is unset. `_check_invite` validates the code against the team's `metadata.invite_code` (`GET /team/info`, master-key auth) → 404 unknown team, 403 bad code, 502 upstream failure. It also **ensures team members can manage their own keys**: LiteLLM blocks team members from `/key/generate`/`/key/delete` (401 "Team member does not have permissions for endpoint") unless `team_member_permissions` includes them, so missing routes are back-filled via `POST /team/permissions_update` (idempotent union — makes teams created before this change, whose invite links are already shared, work too).
+
+Two caller modes (matching the SPA invite page):
+
+- **`Authorization: Bearer <virtual key>`** (signed-in user): resolves the caller's `user_id` via `GET /key/info` (401 on unknown key).
+- **No auth + JSON body `{full_name, email, password}`** (signup): `POST /user/new` (`auto_create_key: false`, role `internal_user`) then sets the password via `POST /user/update` (`/user/new` has no password field). Duplicate email → clean 409 "An account with this email already exists. Sign in with it instead".
+
+Both modes then enforce **one key per user per team**: `GET /key/list` (`return_full_object=true`, 100/page, hard cap 20 pages) matching `user_id`+`team_id`; a hit aborts with 409 "You already have a virtual key for this team. Sign in and reuse it, or regenerate it from the key list" *before* `POST /team/member_add` runs ("already in team" errors tolerated → idempotent). Finally `POST /key/generate` with the team's member budget (`team_member_budget_table.max_budget`) as `max_budget`, `models: []` (empty list = no restriction = inherit all models) and `metadata: {created_via: invite}`. Returns `{key, user_id, team_id}` — the plaintext `sk-...` key is shown once by the SPA.
+
+All upstream LiteLLM calls go through one master-key-authenticated `httpx.AsyncClient` (`LITELLM_URL`, 30 s timeout); failures become FastAPI `detail` strings the frontend's `extractErrorMessage` understands. At startup the lifespan pings unauthenticated `GET /health/liveliness` (5 s timeout, any HTTP response = reachable — same semantics as the SPA's status banner) and logs; startup is never blocked. The module logger carries its own stderr handler because uvicorn configures no root handlers. Known LiteLLM quirk: session keys from `POST /v2/login` may be invalidated by key-management calls (re-login fixes it) — more in `frontend/AGENTS.md`.
+
+### Configuration
+
+Env vars, loaded with `python-dotenv` from `backend/.env` (real env vars win — but note that file does not exist; see Gotcha 2): `LITELLM_URL` (default `http://localhost:4000`), `LITELLM_MASTER_KEY` (required for the POST route), `STATIC_DIR` (default `backend/frontend/dist`, which never exists when running from source — set it), `HOST`/`PORT`.
 
 ## Commands
 
-Python side (requires Python >= 3.13, pinned in `.python-version`):
+### Backend
 
 ```sh
-uv sync                  # install dependencies into .venv
-uv run invite-litellm    # serve frontend/dist on http://127.0.0.1:8000
+cd backend
+uv sync
+STATIC_DIR=../frontend/dist LITELLM_MASTER_KEY=sk-... uv run invite-litellm
 ```
 
-The served directory defaults to `<repo root>/frontend/dist` and can be overridden with the `STATIC_DIR` env var (useful when the package is installed outside the source tree). Server config (`LITELLM_URL`, `LITELLM_MASTER_KEY`) is read from env vars / the repo-root `.env`.
+`uv sync` installs the project editable; `uv run invite-litellm` starts uvicorn on `HOST`/`PORT` (default `127.0.0.1:8000`). Launch from `backend/` so the relative `STATIC_DIR` resolves. Serving requires `frontend/dist` (run `npm run build` in `frontend/` first); redemption additionally requires a reachable LiteLLM proxy.
 
-Frontend side:
+### Frontend (full details in `frontend/AGENTS.md`)
 
 ```sh
 cd frontend
-npm run dev        # Vite dev server with HMR
-npm run build      # tsc (typecheck-only, noEmit) then vite build; type errors fail the build
-npm run preview    # serve the production build
+npm install        # .npmrc forces legacy-peer-deps — use npm, not yarn/pnpm
+npm run build      # tsc FIRST (type errors fail the build before Vite runs) → dist/
+npx tsc --noEmit   # typecheck only — preferred check
+npx eslint .       # lint (there is no `lint` script in package.json)
 ```
 
-Container (multi-stage `Dockerfile` at the repo root — `node:22-alpine` builds the SPA, a `python:3.13-slim` + uv stage builds the venv from `uv.lock`, and the final slim stage copies only `.venv` + `frontend/dist` and runs as non-root):
+Never start the dev server yourself (`npm run dev`) — the user keeps one running; typecheck instead.
 
-```sh
-podman build -t invite-litellm --build-arg LITELLM_URL=https://litellm.example.com .
-podman run -p 8000:8000 -e LITELLM_MASTER_KEY=sk-... invite-litellm
-```
+### Container / CI
 
-The `LITELLM_URL` build arg sets only the runtime default — nothing is baked into the SPA bundle. The frontend gets the URL at runtime from the backend's `GET /config`, so `-e LITELLM_URL=...` on `podman run` reaches both the backend's upstream calls and the browser: one value, no drift. `LITELLM_MASTER_KEY` is runtime-only (`-e`), never a build arg — `.dockerignore` keeps `.env` files out of the image entirely.
-
-There are **no tests, linters, formatters, or CI** configured anywhere. The only automated check in the whole repo is the `tsc` pass inside `npm run build`.
-
-## Git
-
-Single repository at the root; `frontend/` is a subdirectory, not a submodule or separate repo (the "not a git repository" note in `frontend/AGENTS.md` predates the frontend being committed). Commits touch either root-level Python files or `frontend/` — keep changes scoped accordingly.
+- `compose.yml` pulls the prebuilt multi-arch image: `docker compose up` with `LITELLM_URL` / `LITELLM_MASTER_KEY` in the environment.
+- The root `Dockerfile` (node:22 builds the SPA → uv builds the venv → slim non-root runtime; `LITELLM_URL` is a build-time default, `LITELLM_MASTER_KEY` runtime-only, `.dockerignore` keeps `.env` out) is **stale**: it still copies `pyproject.toml uv.lock …` and `src/` from the repo root, but they moved to `backend/` — a build from the root fails until those paths are fixed. `.github/workflows/docker.yml` builds it on `v*.*.*` tags; the last green build (v0.2.0) predates the move.
+- `frontend/Dockerfile` is the create-refine-app scaffold's standalone image — unused.
 
 ## Gotchas
 
-- The static route in `app.py` is a **catch-all** — any new API endpoint must be registered *before* it in the file, or it will be shadowed.
-- The repo-root `.env` (holding `LITELLM_MASTER_KEY`, `LITELLM_URL`) is gitignored and machine-local — it must contain the LiteLLM proxy's **master key** for invite redemption to work (env-credential admin).
-- `frontend/.env` (holding `LITELLM_URL`, default `http://localhost:4000` — same variable as the backend; `frontend/vite.config.ts` exposes exactly this one non-`VITE_` var via `envPrefix`, deliberately not the whole `LITELLM_` prefix so `LITELLM_MASTER_KEY` can never be inlined into the bundle) is untracked and machine-local. The LiteLLM server URL is baked in at Vite build/dev-start time; changing it requires a dev-server restart, and serving via the Python backend serves only the *built* bundle.
-- The Python build backend is `uv_build` with a `src/` layout — new modules go in `src/invite_litellm/`, not the repo root.
-- A live LiteLLM proxy for testing is expected at `http://localhost:4000` (swagger at `/`, OpenAPI at `/openapi.json`). Its `/v2/login` route is hidden from that OpenAPI spec — see `frontend/AGENTS.md`.
+1. **`backend/pyproject.toml` deliberately declares no `readme`/`license-files`**: those files live at the repo root and uv_build cannot include files outside the project directory — re-adding those declarations makes `uv sync` fail with `failed to open file …/backend/README.md`. uv ≥ 0.13 also warns that the pinned `uv_build>=0.12.6,<0.13.0` build backend does not include the current uv version (warning only).
+2. **Paths resolve from `backend/`, not the repo root**: `_PROJECT_ROOT = Path(__file__).resolve().parents[2]` equals `backend/`, so the dotenv path is `backend/.env` (does not exist — the **repo-root `.env` is NOT read**) and the static default is `backend/frontend/dist` (never exists). Pass `STATIC_DIR` (resolved against your cwd) and real env vars.
+3. **The repo-root `.env` is tracked in git** (currently placeholder test values, `sk-1234`). The root `.gitignore` does not ignore it; only `.dockerignore` keeps it out of images. Do not put a real master key there without untracking it first.
+4. **Catch-all route order**: any new backend API route must be registered *before* `GET /{file_path:path}` in `app.py`, or it is shadowed.
+5. **Stale root `Dockerfile`**: it still copies `pyproject.toml uv.lock …` and `src/` from the repo root, but they moved to `backend/` — a build from the root fails until those paths are fixed (details in Container/CI above).
+6. **No tests and no Python lint/CI** — the only automated checks in the repo are the frontend `tsc` gate inside `npm run build` and manual `npx eslint .`. `.pytest_cache/` at the root is a leftover; there are no test files.
+7. A live LiteLLM proxy for testing is expected at `http://localhost:4000` (swagger at `/`, OpenAPI at `/openapi.json`). Its `/v2/login` route is hidden from that spec — see `frontend/AGENTS.md`.
+
+## Git
+
+Single repository; `backend/` and `frontend/` are plain subdirectories. Keep commits scoped to the part you touched (root files, `backend/`, or `frontend/`).
