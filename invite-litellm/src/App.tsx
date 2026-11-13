@@ -32,6 +32,7 @@ import { dataProvider } from "./providers/data";
 import { ColorModeContextProvider } from "./contexts/color-mode";
 import { Header } from "./components/header";
 import { Login } from "./pages/login";
+import { InviteRedeem } from "./pages/invite";
 import { Profile } from "./pages/profile";
 import { Dashboard } from "./pages/dashboard";
 import { KeyList } from "./pages/keys/list";
@@ -131,6 +132,10 @@ function App() {
                         <NavigateToResource resource="keys" />
                       </Authenticated>
                     }
+                  />
+                  <Route
+                    path="/invite/:team_id/:invite_code"
+                    element={<InviteRedeem />}
                   />
                   <Route
                     path="*"
