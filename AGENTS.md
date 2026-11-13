@@ -18,7 +18,7 @@ Routes, in registration order (order matters — see Gotchas):
 1. `GET /invite/{team_id}/{invite_code}` — serves `index.html` **directly** (no redirect, so the invite URL stays in the address bar for the SPA to parse), `Cache-Control: no-cache`.
 2. `POST /invite/{team_id}/{invite_key}` — invite redemption (below).
 3. `GET /config` — `{litellm_url, version}`; the SPA fetches it on load to adopt the backend's runtime `LITELLM_URL` and display the version in the footer.
-4. `GET /{file_path:path}` — catch-all static server for the SPA build (`FileResponse`; 404 on missing files and on path traversal via `is_relative_to`).
+4. `GET /{file_path:path}` — catch-all static server for the SPA build (`FileResponse`): existing files are served; path traversal 404s (`is_relative_to`); missing paths **with a file extension** 404 (broken asset links stay debuggable); unknown extensionless paths fall back to `index.html` so SPA deep links (`/dashboard`, `/keys/edit/:id`, …) survive refresh/hard load (the `/invite/...` GET route is a special case of the same idea).
 
 ### Invite redemption: `POST /invite/{team_id}/{invite_key}`
 
