@@ -5,21 +5,23 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 const INVITE_BACKEND_URL =
   process.env.INVITE_BACKEND_URL ?? "http://127.0.0.1:8000";
 
-// In production the Python backend serves this SPA, so the invite page POSTs
-// to its own URL and reaches the redemption endpoint same-origin. Under the
-// dev server that URL belongs to Vite — forward only the redemption POSTs to
-// the backend and leave GETs on the dev server so the SPA route (and HMR)
-// keep working.
-async function forwardInvitePost(
+// In production the Python backend serves this SPA, so the invite page
+// calls it same-origin: the redemption POST goes to the page's own URL and
+// the team-name lookup to GET /invite/{team_id}/{code}/info. Under the dev
+// server those URLs belong to Vite — forward both to the backend and leave
+// the other GETs on the dev server so the SPA route (and HMR) keep working.
+const INVITE_INFO_PATTERN = /^\/invite\/[^/]+\/[^/]+\/info$/;
+
+async function forwardToInviteBackend(
   req: IncomingMessage,
   res: ServerResponse,
-  body: Uint8Array,
+  body?: Buffer,
 ): Promise<void> {
   try {
     const upstream = await fetch(`${INVITE_BACKEND_URL}${req.url}`, {
-      method: "POST",
+      method: req.method,
       headers: {
-        "content-type": "application/json",
+        ...(body !== undefined ? { "content-type": "application/json" } : {}),
         ...(typeof req.headers.authorization === "string"
           ? { authorization: req.headers.authorization }
           : {}),
@@ -40,11 +42,20 @@ async function forwardInvitePost(
   }
 }
 
-const invitePostProxy = (): Plugin => ({
-  name: "invite-post-proxy",
+const inviteProxy = (): Plugin => ({
+  name: "invite-proxy",
   configureServer(server: ViteDevServer) {
     server.middlewares.use((req, res, next) => {
-      if (req.method !== "POST" || !req.url?.startsWith("/invite/")) {
+      const path = req.url?.split("?")[0] ?? "";
+      const invitePost =
+        req.method === "POST" && path.startsWith("/invite/");
+      const inviteInfo =
+        req.method === "GET" && INVITE_INFO_PATTERN.test(path);
+      if (inviteInfo) {
+        void forwardToInviteBackend(req, res);
+        return;
+      }
+      if (!invitePost) {
         next();
         return;
       }
@@ -57,14 +68,14 @@ const invitePostProxy = (): Plugin => ({
         res.end();
       });
       req.on("end", () => {
-        void forwardInvitePost(req, res, Buffer.concat(chunks));
+        void forwardToInviteBackend(req, res, Buffer.concat(chunks));
       });
     });
   },
 });
 
 export default defineConfig({
-  plugins: [react(), invitePostProxy()],
+  plugins: [react(), inviteProxy()],
   server: {
     proxy: {
       // Same-origin GET /config from the Python backend in dev (same setup

@@ -4,7 +4,6 @@ import { useInvalidate } from "@refinedev/core";
 import { useDocumentTitle } from "@refinedev/react-router";
 import { Alert, Button, Card, Form, Input, Tabs, Typography } from "antd";
 import { getApiUrl } from "../../providers/constants";
-import { litellmRequest } from "../../providers/litellm";
 import {
   extractErrorMessage,
   loadSession,
@@ -38,11 +37,10 @@ interface InviteTeamInfo {
   memberBudget: number | null;
 }
 
-interface TeamInfoResponse {
-  team_info?: {
-    team_alias?: string | null;
-    team_member_budget_table?: { max_budget?: number | null } | null;
-  } | null;
+// The invite backend's GET /invite/{team_id}/{code}/info response shape.
+interface InviteInfoResponse {
+  team_name?: unknown;
+  member_budget?: unknown;
 }
 
 // Redemption POST — targets the URL the page was opened with. In production
@@ -141,28 +139,36 @@ export const InviteRedeem = () => {
   const [signInForm] = Form.useForm<SignInValues>();
   const [signUpForm] = Form.useForm<SignUpValues>();
 
-  // Team display name + the member budget the new key will carry. Best
-  // effort: /team/info is admin/team-member-gated, so it stays null for
-  // anonymous visitors (they just see the raw team id).
+  // Team display name + the member budget the new key will carry, from the
+  // invite backend (same origin; the Vite dev server forwards it). It
+  // validates the code with the proxy's master key, so no session is needed
+  // (LiteLLM's own /team/info is admin-gated). Best effort: on failure the
+  // page falls back to the raw team id.
   useEffect(() => {
-    if (session === null || teamId === undefined) return;
+    if (teamId === undefined || inviteCode === undefined) return;
     let cancelled = false;
-    litellmRequest<TeamInfoResponse>("/team/info", {
-      query: { team_id: teamId },
-    })
-      .then((body) => {
-        if (cancelled) return;
+    fetch(`/invite/${teamId}/${inviteCode}/info`)
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json().catch(() => null);
+      })
+      .then((body: unknown) => {
+        if (cancelled || body === null || typeof body !== "object") return;
+        const info = body as InviteInfoResponse;
         setTeamInfo({
-          alias: body.team_info?.team_alias ?? null,
+          alias:
+            typeof info.team_name === "string" && info.team_name !== ""
+              ? info.team_name
+              : null,
           memberBudget:
-            body.team_info?.team_member_budget_table?.max_budget ?? null,
+            typeof info.member_budget === "number" ? info.member_budget : null,
         });
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [session, teamId]);
+  }, [teamId, inviteCode]);
 
   const redeem = async (values?: SignUpValues) => {
     setRedeeming(true);
@@ -337,9 +343,20 @@ export const InviteRedeem = () => {
           <>
             <Typography.Paragraph style={{ marginBottom: 8 }}>
               You have been invited to join{" "}
-              <Typography.Text code>{teamId}</Typography.Text> and receive a
-              virtual key for the team.
+              {teamInfo?.alias ? (
+                <Typography.Text strong>{teamInfo.alias}</Typography.Text>
+              ) : (
+                <Typography.Text code>{teamId}</Typography.Text>
+              )}{" "}
+              and receive a virtual key for the team.
             </Typography.Paragraph>
+            {teamInfo && (
+              <Typography.Paragraph type="secondary">
+                {teamInfo.memberBudget != null
+                  ? `Your virtual key will have a spend budget of $${teamInfo.memberBudget.toFixed(2)}.`
+                  : "Your virtual key will be created without a default spend budget."}
+              </Typography.Paragraph>
+            )}
             <Typography.Paragraph type="secondary">
               Create an account (or sign in if you already have one) to accept
               the invitation.

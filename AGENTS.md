@@ -17,12 +17,13 @@ Routes, in registration order (order matters — see Gotchas):
 
 1. `GET /invite/{team_id}/{invite_code}` — serves `index.html` **directly** (no redirect, so the invite URL stays in the address bar for the SPA to parse), `Cache-Control: no-cache`.
 2. `POST /invite/{team_id}/{invite_key}` — invite redemption (below).
-3. `GET /config` — `{litellm_url, version}`; the SPA fetches it on load to adopt the backend's runtime `LITELLM_URL` and display the version in the footer.
-4. `GET /{file_path:path}` — catch-all static server for the SPA build (`FileResponse`): existing files are served; path traversal 404s (`is_relative_to`); missing paths **with a file extension** 404 (broken asset links stay debuggable); unknown extensionless paths fall back to `index.html` so SPA deep links (`/dashboard`, `/keys/edit/:id`, …) survive refresh/hard load (the `/invite/...` GET route is a special case of the same idea).
+3. `GET /invite/{team_id}/{invite_code}/info` — `{team_name, member_budget}` for the invite page, **no session needed**: validation runs with the master key (LiteLLM's own `/team/info` is admin-gated, which is why this endpoint exists). 403 bad code / 404 unknown team / 503 without master key; unlike the POST it is side-effect-free (no permissions back-fill).
+4. `GET /config` — `{litellm_url, version}`; the SPA fetches it on load to adopt the backend's runtime `LITELLM_URL` and display the version in the footer.
+5. `GET /{file_path:path}` — catch-all static server for the SPA build (`FileResponse`): existing files are served; path traversal 404s (`is_relative_to`); missing paths **with a file extension** 404 (broken asset links stay debuggable); unknown extensionless paths fall back to `index.html` so SPA deep links (`/dashboard`, `/keys/edit/:id`, …) survive refresh/hard load (the `/invite/...` GET route is a special case of the same idea).
 
 ### Invite redemption: `POST /invite/{team_id}/{invite_key}`
 
-Returns 503 when `LITELLM_MASTER_KEY` is unset. `_check_invite` validates the code against the team's `metadata.invite_code` (`GET /team/info`, master-key auth) → 404 unknown team, 403 bad code, 502 upstream failure. It also **ensures team members can manage their own keys**: LiteLLM blocks team members from `/key/generate`/`/key/delete` (401 "Team member does not have permissions for endpoint") unless `team_member_permissions` includes them, so missing routes are back-filled via `POST /team/permissions_update` (idempotent union — makes teams created before this change, whose invite links are already shared, work too).
+Returns 503 when `LITELLM_MASTER_KEY` is unset. `_check_invite` (via `_team_info_for_invite`, the lookup+validation shared with the `…/info` endpoint) validates the code against the team's `metadata.invite_code` (`GET /team/info`, master-key auth) → 404 unknown team, 403 bad code, 502 upstream failure. It also **ensures team members can manage their own keys**: LiteLLM blocks team members from `/key/generate`/`/key/delete` (401 "Team member does not have permissions for endpoint") unless `team_member_permissions` includes them, so missing routes are back-filled via `POST /team/permissions_update` (idempotent union — makes teams created before this change, whose invite links are already shared, work too).
 
 Two caller modes (matching the SPA invite page):
 

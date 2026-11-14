@@ -107,8 +107,12 @@ def _error_message(body: Any, fallback: str) -> str:
     return fallback
 
 
-async def _check_invite(team_id: str, invite_key: str) -> float | None:
-    """Validate the invite code; return the team member budget for the new key."""
+async def _team_info_for_invite(team_id: str, invite_key: str) -> dict[str, Any]:
+    """Fetch the team from the LiteLLM server and validate its invite code.
+
+    Raises 404 (unknown team), 403 (bad code) or 502 (upstream failure);
+    returns the team_info object on success.
+    """
     status, body = await _litellm("GET", "/team/info", params={"team_id": team_id})
     if status == 404:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -124,8 +128,23 @@ async def _check_invite(team_id: str, invite_key: str) -> float | None:
     stored_code = metadata.get("invite_code") if isinstance(metadata, dict) else None
     if not isinstance(stored_code, str) or stored_code != invite_key:
         raise HTTPException(status_code=403, detail="Invalid invite code")
+    return info
+
+
+def _member_budget(info: dict[str, Any]) -> float | None:
     budget_table = info.get("team_member_budget_table")
     max_budget = budget_table.get("max_budget") if isinstance(budget_table, dict) else None
+    return max_budget if isinstance(max_budget, (int, float)) else None
+
+
+def _team_alias(info: dict[str, Any]) -> str | None:
+    alias = info.get("team_alias")
+    return alias if isinstance(alias, str) and alias != "" else None
+
+
+async def _check_invite(team_id: str, invite_key: str) -> float | None:
+    """Validate the invite code; return the team member budget for the new key."""
+    info = await _team_info_for_invite(team_id, invite_key)
 
     current = info.get("team_member_permissions")
     existing = {route for route in current if isinstance(route, str)} if isinstance(current, list) else set()
@@ -141,7 +160,7 @@ async def _check_invite(team_id: str, invite_key: str) -> float | None:
                 status_code=502,
                 detail=f"Could not grant key management permissions to team members: {_error_message(body, f'HTTP {status}')}",
             )
-    return max_budget if isinstance(max_budget, (int, float)) else None
+    return _member_budget(info)
 
 
 def _bearer_token(request: Request) -> str:
@@ -304,6 +323,17 @@ async def redeem_invite(team_id: str, invite_key: str, request: Request) -> dict
     await _add_team_member(team_id, user_id)
     key = await _create_team_key(team_id, user_id, member_budget)
     return {"key": key, "user_id": user_id, "team_id": team_id}
+
+
+@app.get("/invite/{team_id}/{invite_code}/info")
+async def invite_info(team_id: str, invite_code: str) -> dict[str, Any]:
+    """Team name and member budget for the invite page — needs no session:
+    validation runs with the master key, so anonymous invitees see a real
+    team name instead of the raw id (LiteLLM's /team/info is admin-gated)."""
+    if not _LITELLM_MASTER_KEY:
+        raise HTTPException(status_code=503, detail="Invite backend is not configured: set LITELLM_MASTER_KEY")
+    info = await _team_info_for_invite(team_id, invite_code)
+    return {"team_name": _team_alias(info), "member_budget": _member_budget(info)}
 
 
 @app.get("/config")
