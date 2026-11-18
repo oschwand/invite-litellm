@@ -50,7 +50,7 @@ STATIC_DIR=../frontend/dist LITELLM_MASTER_KEY=sk-... uv run invite-litellm
 
 `uv sync` installs the project editable; `uv run invite-litellm` starts uvicorn on `HOST`/`PORT` (default `127.0.0.1:8000`). Launch from `backend/` so the relative `STATIC_DIR` resolves. Serving requires `frontend/dist` (run `npm run build` in `frontend/` first); redemption additionally requires a reachable LiteLLM proxy.
 
-Integration tests (pytest, a dev dependency): `uv run pytest` from `backend/`. `tests/conftest.py` spins up an in-process mock LiteLLM proxy plus the real app under uvicorn on an ephemeral port, so every test makes actual HTTP requests (including a subprocess test asserting startup fails fast without `LITELLM_MASTER_KEY`). The app reads its configuration at import time — the fixtures set the env vars *before* the first `import invite_litellm.app`; extend them the same way.
+Integration tests (pytest, a dev dependency): `uv run pytest` from `backend/`. `tests/conftest.py` spins up an in-process mock LiteLLM proxy plus the real app under uvicorn on an ephemeral port, so every test makes actual HTTP requests (including subprocess tests asserting startup fails fast without/with a wrong `LITELLM_MASTER_KEY`). The mock supports per-test failure injection (`upstream_overrides`: path → `(status, body)`, body bytes = raw non-JSON) and paginated `/key/list` fixtures (`key_list_pages`), both reset automatically between tests. The app reads its configuration at import time — the fixtures set the env vars *before* the first `import invite_litellm.app`; extend them the same way.
 
 ### Frontend (full details in `frontend/AGENTS.md`)
 

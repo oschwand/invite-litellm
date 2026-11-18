@@ -26,6 +26,12 @@ class MockLiteLLM:
     def __init__(self):
         self.users = {}
         self.created_users = []
+        # Test-scoped injections, reset between tests by an autouse
+        # fixture: upstream_overrides maps a path to (status, body) — body
+        # dict → JSON, bytes → raw —; key_list_pages replaces /key/list
+        # with a paginated fixture.
+        self.upstream_overrides = {}
+        self.key_list_pages = None
         self.generated_keys = []
         self.permission_updates = []
         self.team_members = []
@@ -68,8 +74,24 @@ class MockLiteLLM:
                 self.end_headers()
                 self.wfile.write(body)
 
+            def _apply_override(self, url):
+                if url.path not in mock.upstream_overrides:
+                    return False
+                status, body = mock.upstream_overrides[url.path]
+                if isinstance(body, bytes):
+                    self.send_response(status)
+                    self.send_header("Content-Type", "text/plain")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    self._send(status, body)
+                return True
+
             def do_GET(self):
                 url = urlparse(self.path)
+                if self._apply_override(url):
+                    return
                 if url.path == "/health/liveliness":
                     self._send(200, {"status": "healthy"})
                 elif url.path == "/team/info":
@@ -90,6 +112,10 @@ class MockLiteLLM:
                     auth = self.headers.get("Authorization")
                     if auth != f"Bearer {mock.MASTER_KEY}":
                         self._send(401, {"detail": "Invalid proxy server token passed in"})
+                    elif mock.key_list_pages is not None:
+                        page = int(parse_qs(url.query).get("page", ["1"])[0])
+                        keys = mock.key_list_pages[page - 1] if page <= len(mock.key_list_pages) else []
+                        self._send(200, {"keys": keys, "total_pages": len(mock.key_list_pages)})
                     else:
                         self._send(200, {"keys": mock.existing_keys, "total_pages": 1})
                 else:
@@ -99,6 +125,8 @@ class MockLiteLLM:
                 length = int(self.headers.get("Content-Length", 0))
                 raw = self.rfile.read(length)
                 url = urlparse(self.path)
+                if self._apply_override(url):
+                    return
                 if url.path == "/user/new":
                     data = json.loads(raw)
                     mock.created_users.append(data)
@@ -134,6 +162,13 @@ def mock_litellm():
     thread.start()
     yield mock
     mock.server.shutdown()
+
+
+@pytest.fixture(autouse=True)
+def _reset_mock_injections(mock_litellm):
+    mock_litellm.upstream_overrides = {}
+    mock_litellm.key_list_pages = None
+    yield
 
 
 @pytest.fixture(scope="session")
