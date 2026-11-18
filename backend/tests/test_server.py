@@ -105,6 +105,15 @@ def test_redeem_via_signup(server_base_url, mock_litellm):
     assert set(mock_litellm.permission_updates[-1]["team_member_permissions"]) >= {"/key/generate", "/key/delete"}
 
 
+def test_new_users_are_created_with_zero_budget(server_base_url, mock_litellm):
+    response = httpx.post(
+        f"{server_base_url}/invite/{TEAM}/{CODE}",
+        json={"full_name": "Bob", "email": "bob@example.com", "password": "pw"},
+    )
+    assert response.status_code == 200
+    assert mock_litellm.created_users[-1]["max_budget"] == 0
+
+
 def test_redeem_duplicate_email(server_base_url):
     payload = {"full_name": "Ada", "email": "dup@example.com", "password": "pw"}
     first = httpx.post(f"{server_base_url}/invite/{TEAM}/{CODE}", json=payload)

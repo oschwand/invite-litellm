@@ -241,6 +241,10 @@ async def _create_user(account: dict[str, str]) -> str:
             "user_alias": account["full_name"],
             "user_role": "internal_user",
             "auto_create_key": False,
+            # No personal budget: spending is governed by the team key the
+            # invite issues, and without this the proxy may apply its own
+            # default user budget.
+            "max_budget": 0,
         },
     )
     if status in (400, 409):

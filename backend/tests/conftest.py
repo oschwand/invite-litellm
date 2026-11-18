@@ -25,6 +25,7 @@ class MockLiteLLM:
 
     def __init__(self):
         self.users = {}
+        self.created_users = []
         self.generated_keys = []
         self.permission_updates = []
         self.team_members = []
@@ -100,6 +101,7 @@ class MockLiteLLM:
                 url = urlparse(self.path)
                 if url.path == "/user/new":
                     data = json.loads(raw)
+                    mock.created_users.append(data)
                     email = data.get("user_email", "")
                     if email in mock.users:
                         self._send(400, {"detail": f"User {email} already exists"})

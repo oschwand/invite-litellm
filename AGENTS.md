@@ -28,7 +28,7 @@ Returns 503 when `LITELLM_MASTER_KEY` is unset. `_check_invite` (via `_team_info
 Two caller modes (matching the SPA invite page):
 
 - **`Authorization: Bearer <virtual key>`** (signed-in user): resolves the caller's `user_id` via `GET /key/info` (401 on unknown key).
-- **No auth + JSON body `{full_name, email, password}`** (signup): `POST /user/new` (`auto_create_key: false`, role `internal_user`) then sets the password via `POST /user/update` (`/user/new` has no password field). Duplicate email → clean 409 "An account with this email already exists. Sign in with it instead".
+- **No auth + JSON body `{full_name, email, password}`** (signup): `POST /user/new` (`auto_create_key: false`, role `internal_user`, **`max_budget: 0`** — no personal budget, spend is governed by the team key; also prevents the proxy's default user budget from applying) then sets the password via `POST /user/update` (`/user/new` has no password field). Duplicate email → clean 409 "An account with this email already exists. Sign in with it instead".
 
 Both modes then enforce **one key per user per team**: `GET /key/list` (`return_full_object=true`, 100/page, hard cap 20 pages) matching `user_id`+`team_id`; a hit aborts with 409 "You already have a virtual key for this team. Sign in and reuse it, or regenerate it from the key list" *before* `POST /team/member_add` runs ("already in team" errors tolerated → idempotent). Finally `POST /key/generate` with the team's member budget (`team_member_budget_table.max_budget`) as `max_budget`, `models: []` (empty list = no restriction = inherit all models) and `metadata: {created_via: invite}`. Returns `{key, user_id, team_id}` — the plaintext `sk-...` key is shown once by the SPA.
 
