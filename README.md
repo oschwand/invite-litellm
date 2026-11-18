@@ -21,18 +21,31 @@ with admin access (master key), reachable from both the browser
 ## Features
 
 - **Login** against the LiteLLM proxy.
+- **Dashboard**: your total spend and budget, your teams with your own
+  spend in each, and your virtual keys.
 - **Invite links**: either sign in with an existing account or create
-  a new one (name, email, password). Accepting the invite adds the
-  user to the team and issues a team virtual key (budget = the team's
-  member budget).
+  a new one (name, email, password). The invitation page shows the
+  team name and the granted budget before signing in. Accepting the
+  invite adds the user to the team and issues a team virtual key
+  (budget = the team's member budget); each user gets at most one key
+  per team, and invited accounts carry no personal budget — all
+  spending goes through the team key.
 - **Budget**: enforced by the proxy with a maximum amount chosen during
   team creation.
 - **Playground**: test a virtual key with a simple chat.
 - **Virtual keys dashboard**: list your keys with spend, budget,
-  expiry; enable and disable, regenerate and delete them.
+  expiry; edit their name, budget, team and allowed models; enable and
+  disable, regenerate and delete them.
 - **Teams** (admin only): browse teams with their budgets, spend and
   invite links; create teams with a member budget and a generated
-  invite link.
+  invite link, edit budgets and allowed models, regenerate invite
+  links, and inspect every member's keys.
+- **Users** (admin only): browse the proxy users with their name,
+  email and role.
+- **Models**: browse the models served by the proxy with their
+  per-million-token prices.
+- **Help**: a Python client snippet pointing at your proxy and an
+  explanation of the budget mechanisms.
 
 ## Running
 
@@ -81,8 +94,13 @@ Configuration can be made either with environment variables or with a
 ```sh
 LITELLM_URL=http://localhost:4000      # LiteLLM proxy base URL
 LITELLM_MASTER_KEY=sk-...              # required for invite redemption —
-                                       # the backend refuses to start without it
+                                       # the backend refuses to start if it is
+                                       # missing or rejected by the proxy
 ```
+
+The web app fetches `LITELLM_URL` from the backend at startup, so this
+one variable configures both; the URL must be reachable from the
+browser as well as from the backend.
 
 ## Usage
 
@@ -96,6 +114,9 @@ LITELLM_MASTER_KEY=sk-...              # required for invite redemption —
    with the people you invite. The link (and a copy button) also appears in the Teams
    table for future reference.
 
+Budgets, allowed models and the invite link itself can be changed later from the
+team's edit page; regenerating the link invalidates the old one.
+
 Members are automatically granted permission to generate and delete their own team keys.
 
 Beware that teams created this way are granted access to all models on
@@ -108,9 +129,23 @@ the proxy. Use the LiteLLM dashboard to configure more precisely.
 2. Either **create an account** (full name, email, password) or **sign in** if you already
    have one.
 3. Click **Accept the invite**: you join the team and a virtual key (`sk-...`) is created.
-   It is displayed **once** — copy and store it somewhere safe.
+   It is displayed **once** — copy and store it somewhere safe. Accepting an invite
+   twice is refused: reuse your existing key or regenerate it from the key list.
 4. Sign in to the dashboard with your email and password to see your keys, spend and
    budget, and to enable/disable, regenerate or delete keys.
+
+## Development
+
+The backend ships an integration test suite: an in-process mock of the
+LiteLLM proxy plus the real app served over HTTP, exercised with real
+requests (including startup failures on a bad master key):
+
+```sh
+cd backend && uv run pytest
+```
+
+The frontend has no test suite; `npm run build` type-checks with
+`tsc` before building.
 
 ## License
 
