@@ -38,7 +38,18 @@ if not _logger.handlers:
     _logger.setLevel(logging.INFO)
 
 
-async def _check_litellm_reachable() -> None:
+def _require_master_key() -> None:
+    """Fail fast when the master key is missing: a server that starts
+    happily only to answer 503 on every invite request hides the
+    misconfiguration until someone tries to redeem a link."""
+    if not _LITELLM_MASTER_KEY.strip():
+        raise RuntimeError(
+            "LITELLM_MASTER_KEY is not set — invite redemption cannot work. "
+            "Pass it as an environment variable or put it in backend/.env."
+        )
+
+
+async def _check_litellm_reachable() -> bool:
     try:
         await _client.get("/health/liveliness", timeout=5.0)
     except httpx.HTTPError:
@@ -46,13 +57,30 @@ async def _check_litellm_reachable() -> None:
             "Cannot reach the LiteLLM server at %s — check that it is running. Invite redemption will fail until it is back.",
             _LITELLM_URL,
         )
-    else:
-        _logger.info("LiteLLM server at %s is reachable", _LITELLM_URL)
+        return False
+    _logger.info("LiteLLM server at %s is reachable", _LITELLM_URL)
+    return True
+
+
+async def _verify_master_key() -> None:
+    """The proxy is up — the master key must actually authenticate. Any
+    non-200 answer is a hard startup failure: an unverifiable or wrong
+    key is as broken for invite redemption as no proxy at all."""
+    status, body = await _litellm("GET", "/key/list", params={"size": "1"})
+    if status == 200:
+        _logger.info("The master key was accepted by the LiteLLM server")
+        return
+    raise RuntimeError(
+        f"The LiteLLM server at {_LITELLM_URL} did not accept LITELLM_MASTER_KEY "
+        f"(HTTP {status}: {_error_message(body, 'unauthorized')}) — check the key value."
+    )
 
 
 @asynccontextmanager
 async def _lifespan(_: FastAPI):
-    await _check_litellm_reachable()
+    _require_master_key()
+    if await _check_litellm_reachable():
+        await _verify_master_key()
     yield
     await _client.aclose()
 

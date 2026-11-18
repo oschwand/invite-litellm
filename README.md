@@ -80,7 +80,8 @@ Configuration can be made either with environment variables or with a
 
 ```sh
 LITELLM_URL=http://localhost:4000      # LiteLLM proxy base URL
-LITELLM_MASTER_KEY=sk-...              # required for invite redemption
+LITELLM_MASTER_KEY=sk-...              # required for invite redemption —
+                                       # the backend refuses to start without it
 ```
 
 ## Usage
