@@ -7,13 +7,13 @@
 - **`backend/`** — the Python `uv` project (`src/` layout, package `invite_litellm`, FastAPI, Python ≥ 3.13). Two jobs: serve the built SPA and redeem invites server-side using the proxy's master key. The version in `backend/pyproject.toml` is the single source of truth, surfaced at runtime via `importlib.metadata` → `GET /config` → SPA footer (works in the container where no source tree exists).
 - **`frontend/`** — the SPA: **Refine v5 + React 19 + TypeScript + Ant Design 5 + Vite 6** (the original Alpine.js app was removed — "refine is the new frontend"). **Read `frontend/AGENTS.md` before any frontend work** — it contains hard-won LiteLLM API knowledge (the hidden `/v2/login` endpoint, auth via the JWT `key` claim, key-regeneration simulation, the three error-body shapes) that is not discoverable from the code or the LiteLLM OpenAPI spec.
 
-Also at the root: `Dockerfile` (multi-stage image — **currently stale**, see Gotchas), `compose.yml` (runs the prebuilt ghcr.io image), `.github/workflows/docker.yml` (multi-arch publish to `ghcr.io/oschwand/invite-litellm` on `v*.*.*` tags or manual dispatch), and `README.md` (user-facing — keep it in sync when commands or layout change).
+Also at the root: `Dockerfile` (multi-stage image — **currently stale**, see Gotchas), `compose.yml` (runs the prebuilt ghcr.io image), `.github/workflows/docker.yml` (multi-arch publish to `ghcr.io/oschwand/invite-litellm` on `v*.*.*` tags or manual dispatch), `README.md` (user-facing — keep it in sync when commands or layout change), and three reference docs added alongside the code: `BACKEND.md` (HTTP API — every route, the redemption pipeline, the upstream LiteLLM call map), `FRONTEND.md` (SPA routes by access tier: public / user dashboard / administration), and `SECURITY.md` (manual security review at commit `6ff58fe` — findings up to high severity plus a deployment hardening checklist). Keep all of them in sync with the code, like AGENTS.md itself.
 
 ## Backend
 
 The whole package is two files: `backend/src/invite_litellm/app.py` (FastAPI app, all routes and LiteLLM calls) and `__init__.py` (`main()` runs uvicorn on `HOST`/`PORT`, defaults `127.0.0.1:8000`; the Dockerfile sets `HOST=0.0.0.0`).
 
-Routes, in registration order (order matters — see Gotchas):
+Routes, in registration order (order matters — see Gotchas; full reference with upstream call map in `BACKEND.md`):
 
 1. `GET /invite/{team_id}/{invite_code}` — serves `index.html` **directly** (no redirect, so the invite URL stays in the address bar for the SPA to parse), `Cache-Control: no-cache`.
 2. `POST /invite/{team_id}/{invite_key}` — invite redemption (below).
@@ -50,9 +50,9 @@ STATIC_DIR=../frontend/dist LITELLM_MASTER_KEY=sk-... uv run invite-litellm
 
 `uv sync` installs the project editable; `uv run invite-litellm` starts uvicorn on `HOST`/`PORT` (default `127.0.0.1:8000`). Launch from `backend/` so the relative `STATIC_DIR` resolves. Serving requires `frontend/dist` (run `npm run build` in `frontend/` first); redemption additionally requires a reachable LiteLLM proxy.
 
-Integration tests (pytest, a dev dependency): `uv run pytest` from `backend/`. `tests/conftest.py` spins up an in-process mock LiteLLM proxy plus the real app under uvicorn on an ephemeral port, so every test makes actual HTTP requests (including subprocess tests asserting startup fails fast without/with a wrong `LITELLM_MASTER_KEY`). The mock supports per-test failure injection (`upstream_overrides`: path → `(status, body)`, body bytes = raw non-JSON) and paginated `/key/list` fixtures (`key_list_pages`), both reset automatically between tests. The app reads its configuration at import time — the fixtures set the env vars *before* the first `import invite_litellm.app`; extend them the same way.
+Integration tests (pytest and coverage, both dev dependencies): `uv run pytest` from `backend/` (branch coverage via `uv run coverage run -m pytest` — `app.py` sits at 94%). `tests/conftest.py` spins up an in-process mock LiteLLM proxy plus the real app under uvicorn on an ephemeral port, so every test makes actual HTTP requests (including subprocess tests asserting startup fails fast without/with a wrong `LITELLM_MASTER_KEY`). The mock supports per-test failure injection (`upstream_overrides`: path → `(status, body)`, body bytes = raw non-JSON) and paginated `/key/list` fixtures (`key_list_pages`), both reset automatically between tests. The app reads its configuration at import time — the fixtures set the env vars *before* the first `import invite_litellm.app`; extend them the same way.
 
-### Frontend (full details in `frontend/AGENTS.md`)
+### Frontend (full details in `frontend/AGENTS.md`; route map in `FRONTEND.md`)
 
 ```sh
 cd frontend
@@ -74,7 +74,7 @@ Never start the dev server yourself (`npm run dev`) — the user keeps one runni
 
 1. **`backend/pyproject.toml` deliberately declares no `readme`/`license-files`**: those files live at the repo root and uv_build cannot include files outside the project directory — re-adding those declarations makes `uv sync` fail with `failed to open file …/backend/README.md`. uv ≥ 0.13 also warns that the pinned `uv_build>=0.12.6,<0.13.0` build backend does not include the current uv version (warning only).
 2. **Paths resolve from `backend/`, not the repo root**: `_PROJECT_ROOT = Path(__file__).resolve().parents[2]` equals `backend/`, so the dotenv path is `backend/.env` (does not exist — the **repo-root `.env` is NOT read**) and the static default is `backend/frontend/dist` (never exists). Pass `STATIC_DIR` (resolved against your cwd) and real env vars.
-3. **The repo-root `.env` is tracked in git** (currently placeholder test values, `sk-1234`). The root `.gitignore` does not ignore it; only `.dockerignore` keeps it out of images. Do not put a real master key there without untracking it first.
+3. **The repo-root `.env` is tracked in git** (currently placeholder test values, `sk-1234`). The root `.gitignore` does not ignore it; only `.dockerignore` keeps it out of images. Do not put a real master key there without untracking it first (finding SEC-01 in `SECURITY.md`).
 4. **Catch-all route order**: any new backend API route must be registered *before* `GET /{file_path:path}` in `app.py`, or it is shadowed.
 5. **Stale root `Dockerfile`**: it still copies `pyproject.toml uv.lock …` and `src/` from the repo root, but they moved to `backend/` — a build from the root fails until those paths are fixed (details in Container/CI above).
 6. **Tests exist only for the backend** (`backend/tests/`, pytest — see Commands). The frontend has none (its gates are the `tsc` pass in `npm run build` and manual `npx eslint .`), and CI builds only the Docker image — nothing runs the test suite.
