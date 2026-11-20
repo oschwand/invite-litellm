@@ -171,6 +171,35 @@ const OtherCosts = ({ parts }: { parts: string[] }) => {
 const formatContext = (value: number | null | undefined) =>
   value == null ? "—" : `${Math.round(value / 1000)}k`;
 
+// --- Column sorting ------------------------------------------------------
+// Comparators are written for ascending: antd negates the result itself for
+// descending sorts and passes the active order as the third argument, which
+// the numeric comparator uses to keep "—" (missing) values at the bottom in
+// BOTH directions instead of letting the negation float them to the top.
+type SortOrder = "ascend" | "descend" | null | undefined;
+
+const compareNumbers = (
+  a: number | null,
+  b: number | null,
+  order: SortOrder,
+): number => {
+  if (a == null && b == null) return 0;
+  if (a == null || b == null) {
+    const bias = order === "descend" ? -1 : 1;
+    return a == null ? bias : -bias;
+  }
+  return a - b;
+};
+
+const compareNames = (a: ModelDeployment, b: ModelDeployment) =>
+  a.model_name.localeCompare(b.model_name);
+
+const compareModes = (a: ModelDeployment, b: ModelDeployment) =>
+  (a.model_info?.mode ?? "").localeCompare(b.model_info?.mode ?? "");
+
+const contextOf = (record: ModelDeployment): number | null =>
+  record.model_info?.max_input_tokens ?? record.model_info?.max_tokens ?? null;
+
 type TeamInfoResponse = {
   id?: string;
   team_info?: {
@@ -189,13 +218,38 @@ export const ModelList = () => {
   // without a filter it renders nothing and fetches nothing.
   const hasFilter = teamId != null || keyHash != null;
 
-  const { tableProps } = useTable<ModelDeployment>({
+  const { tableProps, sorters } = useTable<ModelDeployment>({
     resource: "models",
     syncWithLocation: true,
-    pagination: { mode: "client" },
+    // Mode "off": Refine's "client" pagination slices the list to the
+    // current page inside useList, which would trap sorting and the
+    // free-text filter inside that page. With it off, dataSource is the
+    // full list and the antd table below paginates locally.
+    pagination: { mode: "off" },
+    // Mode "off": sort clicks must not refetch — the list arrives in one
+    // call and antd sorts the rendered dataSource locally with the column
+    // comparators below. The sorter state still rides syncWithLocation, so
+    // sorted views stay shareable/reloadable.
+    sorters: { mode: "off" },
     meta: { teamId, keyHash },
     queryOptions: { enabled: hasFilter },
   });
+
+  // Local pagination for the antd table (Refine's is disabled above).
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Strict asc/desc toggle: antd's header cycle would add a third "cancel
+  // sort" click (asc → desc → unsorted). The controlled sortOrder below plus
+  // the onChange wrapper turn that cancel into a flip back to ascending, so
+  // every click only ever toggles between the two directions.
+  const activeSorter = sorters[0];
+  const orderFor = (columnKey: string): "ascend" | "descend" | undefined =>
+    activeSorter?.field === columnKey
+      ? activeSorter.order === "desc"
+        ? "descend"
+        : "ascend"
+      : undefined;
 
   // Resolve the team's display name for the title when filtering.
   const { query: teamQuery } = useCustom<TeamInfoResponse>({
@@ -292,48 +346,148 @@ export const ModelList = () => {
           prefix={<SearchOutlined style={{ opacity: 0.4 }} />}
           style={{ width: 220 }}
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setPage(1);
+          }}
         />
       }
     >
-      <Table {...tableProps} dataSource={filteredModels} rowKey="id">
+      <Table
+        {...tableProps}
+        dataSource={filteredModels}
+        rowKey="id"
+        pagination={{
+          current: page,
+          pageSize,
+          onChange: (nextPage, nextSize) => {
+            setPage(nextPage);
+            setPageSize(nextSize);
+          },
+        }}
+        // antd's default tooltip announces a "cancel sorting" third click;
+        // the onChange wrapper below makes every click toggle direction.
+        showSorterTooltip={{ title: "Toggle sort direction" }}
+        onChange={(pagination, filters, sorter, extra) => {
+          // Normalize what antd reports before Refine's handler sees it:
+          // - a "cancel sort" click reports no order (and no column
+          //   identity) — flip the active column back to ascending;
+          // - the column key doubles as the sorter field fallback (Refine
+          //   drops sorters that report no field).
+          const proposed = Array.isArray(sorter) ? sorter[0] : sorter;
+          const next =
+            proposed && activeSorter
+              ? {
+                  ...proposed,
+                  columnKey: proposed.columnKey ?? activeSorter.field,
+                  field:
+                    proposed.field ??
+                    proposed.columnKey ??
+                    activeSorter.field,
+                  order: proposed.order ?? "ascend",
+                }
+              : sorter;
+          tableProps.onChange?.(pagination, filters, next, extra);
+        }}
+      >
         <Table.Column<ModelDeployment>
+          key="model_name"
           dataIndex="model_name"
           title="Model"
+          sortOrder={orderFor("model_name")}
+          sorter={compareNames}
           render={(value) => (
             <span style={{ fontFamily: "monospace" }}>{value}</span>
           )}
         />
         <Table.Column<ModelDeployment>
+          key="mode"
           dataIndex={["model_info", "mode"]}
           title="Type"
+          sortOrder={orderFor("mode")}
+          sorter={compareModes}
           render={(value) => (value ? <TagField value={value} /> : "—")}
         />
         <Table.Column<ModelDeployment>
+          key="input"
+          dataIndex="input"
           title="In"
+          sortOrder={orderFor("input")}
+          sorter={(a, b, order) =>
+            compareNumbers(
+              resolveCosts(a).input.amount,
+              resolveCosts(b).input.amount,
+              order,
+            )
+          }
           render={(_, record) => renderCost(resolveCosts(record).input)}
         />
         <Table.Column<ModelDeployment>
+          key="output"
+          dataIndex="output"
           title="Out"
+          sortOrder={orderFor("output")}
+          sorter={(a, b, order) =>
+            compareNumbers(
+              resolveCosts(a).output.amount,
+              resolveCosts(b).output.amount,
+              order,
+            )
+          }
           render={(_, record) => renderCost(resolveCosts(record).output)}
         />
         <Table.Column<ModelDeployment>
+          key="cache_read"
+          dataIndex="cache_read"
           title="Cache read"
+          sortOrder={orderFor("cache_read")}
+          sorter={(a, b, order) =>
+            compareNumbers(
+              resolveCosts(a).cacheRead.amount,
+              resolveCosts(b).cacheRead.amount,
+              order,
+            )
+          }
           render={(_, record) => renderCost(resolveCosts(record).cacheRead)}
         />
         <Table.Column<ModelDeployment>
+          key="cache_write"
+          dataIndex="cache_write"
           title="Cache write"
+          sortOrder={orderFor("cache_write")}
+          sorter={(a, b, order) =>
+            compareNumbers(
+              resolveCosts(a).cacheWrite.amount,
+              resolveCosts(b).cacheWrite.amount,
+              order,
+            )
+          }
           render={(_, record) => renderCost(resolveCosts(record).cacheWrite)}
         />
         <Table.Column<ModelDeployment>
+          key="other"
+          dataIndex="other"
           title="Other"
+          sortOrder={orderFor("other")}
+          sorter={(a, b, order) =>
+            compareNumbers(
+              resolveCosts(a).extras.length,
+              resolveCosts(b).extras.length,
+              order,
+            )
+          }
           render={(_, record) => (
             <OtherCosts parts={resolveCosts(record).extras} />
           )}
         />
         <Table.Column<ModelDeployment>
+          key="context"
           dataIndex={["model_info", "max_input_tokens"]}
           title="Context"
+          sortOrder={orderFor("context")}
+          sorter={(a, b, order) =>
+            compareNumbers(contextOf(a), contextOf(b), order)
+          }
           render={(value, record) =>
             formatContext(value ?? record.model_info?.max_tokens ?? null)
           }

@@ -106,7 +106,12 @@ without a filter the page shows nothing. Non-admin sessions get the
 models their teams allow **with pricing**, via the Python backend's
 authenticated `GET /models` (the proxy's `/model/info` hides deployments
 and costs from internal users); admins see the full `/model/info`
-catalog directly.
+catalog directly. Every column is sortable (Model, Type, In, Out, Cache
+read, Cache write, Other, Context) with a strict ascending/descending
+toggle — clicking a header flips the direction and never clears the
+sort; rows without a value ("—") always sort last. Sorting, the
+free-text filter and pagination all operate on the full fetched list
+(the table paginates locally), and the active sort is kept in the URL.
 
 ### `/playground` — chat test
 
