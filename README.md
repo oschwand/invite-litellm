@@ -42,8 +42,9 @@ with admin access (master key), reachable from both the browser
   links, and inspect every member's keys.
 - **Users** (admin only): browse the proxy users with their name,
   email and role.
-- **Models**: browse the models served by the proxy with their
-  per-million-token prices.
+- **Models**: browse the models with their per-million-token prices —
+  members see exactly the models their teams allow, admins the whole
+  proxy catalog.
 - **Help**: a Python client snippet pointing at your proxy and an
   explanation of the budget mechanisms.
 

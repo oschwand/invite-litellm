@@ -14,15 +14,17 @@ Routes are listed in **registration order**. New API routes must be registered
   human-readable message. The SPA surfaces `detail` strings directly in its
   error alerts (via `extractErrorMessage`), so messages are written for end
   users, not just logs.
-- **Authentication** — only invite redemption accepts credentials, optionally:
-  an `Authorization: Bearer <virtual key>` header identifies a signed-in user
-  (verified against the proxy — see
+- **Authentication** — two routes accept credentials: invite redemption
+  and `GET /models`, both optionally via an
+  `Authorization: Bearer <virtual key>` header that identifies a signed-in
+  user (verified against the proxy — see
   [signed-in caller verification](#signed-in-caller-verification)).
   There is no session state; every other route is anonymous.
 - **Upstream calls** all go through one master-key-authenticated
   `httpx.AsyncClient` (`LITELLM_URL`, 30 s timeout, no redirect following).
   Callers never talk to the proxy through this service: the SPA contacts
-  LiteLLM directly and only uses these routes for redemption and config.
+  LiteLLM directly and only uses these routes for redemption, config and
+  the team-filtered model list.
 - **502** is the generic "the LiteLLM proxy failed me" status; the `detail`
   embeds the upstream error message where one is available.
 
@@ -174,7 +176,36 @@ container where no source tree exists).
 | Auth | none |
 | Response | `{"litellm_url": "http://localhost:4000", "version": "0.2.1"}` (`version` is `"unknown"` when the package metadata is missing) |
 
-## 5. `GET /{file_path:path}` — static catch-all
+## 5. `GET /models`
+
+Model deployments **with their full cost metadata**, limited to what the
+signed-in user's teams allow — `/model/info` is admin-gated on the proxy
+(internal users get no pricing), so the master key fetches the full list and
+this route narrows it per caller. The SPA's models page uses it for non-admin
+sessions.
+
+```sh
+curl http://127.0.0.1:8000/models -H "Authorization: Bearer sk-..."
+curl "http://127.0.0.1:8000/models?team_id=good" -H "Authorization: Bearer sk-..."
+```
+
+| | |
+|---|---|
+| Auth | **required**: `Authorization: Bearer <virtual key>` (same verification as invite redemption's bearer mode) |
+| Query | `team_id` (optional) — restrict the view to one team the caller belongs to |
+| Response | `{"data": [{"model_name": "gpt-4o", "model_info": {…costs, mode, max_input_tokens…}}, …]}` — same shape as the proxy's `/model/info` |
+| Errors | 401 no auth header / unknown key · 403 `?team_id=` the caller does not belong to · 502 upstream failure · 503 master key unset |
+
+Pipeline: verify the bearer key (`GET /key/info`) → resolve the caller's
+teams (`GET /user/info` → `user_info.teams`) → read each team's allowlist
+(`GET /team/info` → `models`) → fetch every deployment with costs
+(`GET /model/info`) → filter. Allowlist semantics: **missing, empty or
+`["all-proxy-models"]` means unrestricted** — one unrestricted team in the
+set makes every deployment visible; otherwise the union of the allowlists
+wins, and allowed-but-undeployed names are returned as bare `{model_name}`
+entries (no pricing). A user in no team gets `{"data": []}`.
+
+## 6. `GET /{file_path:path}` — static catch-all
 
 Serves the SPA build from `STATIC_DIR`. Resolution rules:
 
@@ -197,13 +228,14 @@ Errors: 404 as above; a missing `index.html` makes every fallback path 404.
 
 Which proxy endpoints each route needs (all master-key-authenticated):
 
-| Route | `GET /team/info` | `POST /team/permissions_update` | `GET /key/info` | `POST /user/new` | `POST /user/update` | `POST /team/member_add` | `GET /key/list` | `POST /key/generate` |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `GET /invite/{t}/{c}` | — | — | — | — | — | — | — | — |
-| `POST /invite/{t}/{k}` (bearer) | ✓ | ✓ | ✓ | — | — | ✓ | ✓ | ✓ |
-| `POST /invite/{t}/{k}` (signup) | ✓ | ✓ | — | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `GET /invite/{t}/{c}/info` | ✓ | — | — | — | — | — | — | — |
-| `GET /config`, static | — | — | — | — | — | — | — | — |
+| Route | `GET /team/info` | `POST /team/permissions_update` | `GET /key/info` | `POST /user/new` | `POST /user/update` | `POST /team/member_add` | `GET /key/list` | `POST /key/generate` | `GET /user/info` | `GET /model/info` |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `GET /invite/{t}/{c}` | — | — | — | — | — | — | — | — | — | — |
+| `POST /invite/{t}/{k}` (bearer) | ✓ | ✓ | ✓ | — | — | ✓ | ✓ | ✓ | — | — |
+| `POST /invite/{t}/{k}` (signup) | ✓ | ✓ | — | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `GET /invite/{t}/{c}/info` | ✓ | — | — | — | — | — | — | — | — | — |
+| `GET /models` | ✓ | — | ✓ | — | — | — | — | — | ✓ | ✓ |
+| `GET /config`, static | — | — | — | — | — | — | — | — | — | — |
 
 Additionally, **at startup** the lifespan verifies the master key with
 `GET /key/list?size=1` (any non-200 aborts the process) and pings

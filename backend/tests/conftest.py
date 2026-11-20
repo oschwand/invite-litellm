@@ -36,7 +36,51 @@ class MockLiteLLM:
         self.permission_updates = []
         self.team_members = []
         self.existing_keys = [{"token": "k1", "user_id": "user-42", "team_id": TEAM}]
-        self.session_key_users = {"sess-key": "user-42", "fresh-key": "user-77"}
+        self.session_key_users = {
+            "sess-key": "user-42",
+            "fresh-key": "user-77",
+            "wild-key": "user-99",
+            "solo-key": "user-88",
+            "admin-key": "user-1",
+        }
+        # team memberships returned by /user/info (user_id -> team ids)
+        self.user_teams = {
+            "user-42": [TEAM],
+            "user-77": [TEAM, "wide"],
+            "user-99": ["wildcard"],
+            "user-88": [],
+            "user-1": [],
+        }
+        # roles returned by /user/info (default internal_user)
+        self.user_roles = {"user-1": "proxy_admin"}
+        # deployments returned by /model/info, with cost metadata
+        self.models = [
+            {
+                "model_name": "gpt-4o",
+                "model_info": {
+                    "mode": "chat",
+                    "max_input_tokens": 128000,
+                    "input_cost_per_token": 2.5e-6,
+                    "output_cost_per_token": 1e-5,
+                },
+            },
+            {
+                "model_name": "claude-3-5",
+                "model_info": {
+                    "mode": "chat",
+                    "input_cost_per_token": 3e-6,
+                    "output_cost_per_token": 1.5e-5,
+                },
+            },
+            {
+                "model_name": "llama-3",
+                "model_info": {
+                    "mode": "chat",
+                    "input_cost_per_token": 5e-7,
+                    "output_cost_per_token": 1.5e-6,
+                },
+            },
+        ]
         self.server = None
 
     @property
@@ -51,12 +95,18 @@ class MockLiteLLM:
                 "metadata": {"invite_code": CODE},
                 "team_member_budget_table": {"max_budget": 12.5},
                 "team_member_permissions": [],
+                "models": ["gpt-4o", "claude-3-5", "gemini-pro"],
             }
         if team_id == "plain":
             return {
                 "team_id": "plain",
                 "metadata": {"invite_code": "PlainCod"},
             }
+        if team_id == "wide":
+            # no models list = unrestricted
+            return {"team_id": "wide", "team_alias": "Wide Open"}
+        if team_id == "wildcard":
+            return {"team_id": "wildcard", "models": ["all-proxy-models"]}
         return None
 
     def _handler(self):
@@ -108,6 +158,21 @@ class MockLiteLLM:
                         self._send(404, {"detail": "No keys found"})
                     else:
                         self._send(200, {"info": {"user_id": user_id}})
+                elif url.path == "/user/info":
+                    user_id = parse_qs(url.query).get("user_id", [""])[0]
+                    self._send(
+                        200,
+                        {
+                            "user_id": user_id,
+                            "user_info": {
+                                "user_id": user_id,
+                                "user_role": mock.user_roles.get(user_id, "internal_user"),
+                                "teams": mock.user_teams.get(user_id, []),
+                            },
+                        },
+                    )
+                elif url.path == "/model/info":
+                    self._send(200, {"data": mock.models})
                 elif url.path == "/key/list":
                     auth = self.headers.get("Authorization")
                     if auth != f"Bearer {mock.MASTER_KEY}":

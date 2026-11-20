@@ -19,6 +19,7 @@ import { getApiUrl } from "./constants";
 import { isAllModels } from "../utils/models";
 import { loadSession } from "./session";
 import { LiteLLMError, litellmRequest, type QueryValue } from "./litellm";
+import { backendRequest } from "./backend";
 
 // ---------------------------------------------------------------------------
 // LiteLLM API response shapes (verified against a live proxy v1.100.x — the
@@ -374,39 +375,72 @@ export const dataProvider: DataProvider = {
     }
 
     // models — when meta.teamId is set (linked from a team's Models cell),
-    // fetch the team's allowlist via /team/info and filter by model_name.
-    // meta.keyHash does the same for a virtual key's own allowlist (linked
-    // from the keys page) via /key/list?key_hash. The /model/info?teamId
-    // server param is NOT usable for this: it filters by deployment access
-    // (direct_access / access_via_team_ids), not by the allowed-models
-    // list. Unrestricted (models null/empty or just "all-proxy-models")
-    // gets the full list.
+    // the list is filtered by that team's allowlist; meta.keyHash does the
+    // same for a virtual key's own allowlist (linked from the keys page).
+    // The /model/info?teamId server param is NOT usable for this: it
+    // filters by deployment access (direct_access / access_via_team_ids),
+    // not by the allowed-models list. Unrestricted (models null/empty or
+    // just "all-proxy-models") gets the full list.
     const teamId = (meta as { teamId?: string } | undefined)?.teamId;
     const keyHash = (meta as { keyHash?: string } | undefined)?.keyHash;
-    let allowedModels: string[] | undefined;
-    if (teamId) {
-      const teamBody = await litellmRequest<{
-        team_info?: { models?: string[] | null };
-      }>("/team/info", { query: { team_id: teamId } });
-      const teamModels = teamBody.team_info?.models ?? null;
-      if (teamModels && !isAllModels(teamModels)) {
-        allowedModels = teamModels;
-      }
-    } else if (keyHash) {
-      const keyBody = await litellmRequest<KeyListResponse>("/key/list", {
-        query: { return_full_object: true, key_hash: keyHash, size: 1 },
-      });
-      const keyModels = (keyBody.keys?.[0]?.models as string[] | null) ?? null;
-      if (keyModels && !isAllModels(keyModels)) {
-        allowedModels = keyModels;
+    let models: LiteLLMRecord[] | null = null;
+    // The Python backend's GET /models is the primary source: same {data}
+    // shape as /model/info but fetched with the master key (the proxy hides
+    // deployments — and their pricing — from internal users) and scoped to
+    // the caller — the teams' allowlists for members, the full catalog for
+    // admins. Best-effort: without a backend (bare dev server) fall through
+    // to the direct calls below.
+    if (!keyHash) {
+      try {
+        const body = await backendRequest<ModelInfoResponse>("/models", {
+          query: teamId !== undefined ? { team_id: teamId } : {},
+        });
+        models = (body.data ?? []).filter(
+          (model): model is LiteLLMRecord =>
+            typeof model === "object" && model !== null,
+        );
+      } catch {
+        models = null;
       }
     }
-    const body = await litellmRequest<ModelInfoResponse>("/model/info", {});
-    const models = allowedModels
-      ? (body.data ?? []).filter((model) =>
+    if (models === null) {
+      let allowedModels: string[] | undefined;
+      if (teamId) {
+        const teamBody = await litellmRequest<{
+          team_info?: { models?: string[] | null };
+        }>("/team/info", { query: { team_id: teamId } });
+        const teamModels = teamBody.team_info?.models ?? null;
+        if (teamModels && !isAllModels(teamModels)) {
+          allowedModels = teamModels;
+        }
+      } else if (keyHash) {
+        const keyBody = await litellmRequest<KeyListResponse>("/key/list", {
+          query: { return_full_object: true, key_hash: keyHash, size: 1 },
+        });
+        const keyModels = (keyBody.keys?.[0]?.models as string[] | null) ?? null;
+        if (keyModels && !isAllModels(keyModels)) {
+          allowedModels = keyModels;
+        }
+      }
+      const body = await litellmRequest<ModelInfoResponse>("/model/info", {});
+      const deployments = body.data ?? [];
+      if (allowedModels) {
+        const listed = deployments.filter((model) =>
           allowedModels!.includes(String(model.model_name ?? "")),
-        )
-      : (body.data ?? []);
+        );
+        // /model/info hides deployments from non-admin sessions — still show
+        // every allowed model in the table, just without pricing details.
+        const known = new Set(
+          listed.map((model) => String(model.model_name ?? "")),
+        );
+        const missing = allowedModels
+          .filter((name) => !known.has(name))
+          .map((name) => ({ model_name: name }));
+        models = [...listed, ...missing];
+      } else {
+        models = deployments;
+      }
+    }
     const list = applyClientSide(models, sorters, onlyLogical);
     return {
       data: list.map((model) => withId(model, "model_name")) as TData[],
@@ -466,9 +500,17 @@ export const dataProvider: DataProvider = {
       return { data: withId(info, "user_id") as TData };
     }
 
-    // models: /model/info has no per-name lookup — scan the list.
-    const body = await litellmRequest<ModelInfoResponse>("/model/info", {});
-    const model = (body.data ?? []).find((m) => m.model_name === key);
+    // models: no per-name lookup on either endpoint — scan the list,
+    // preferring the backend's GET /models (cost metadata for every
+    // session) and falling back to a direct /model/info.
+    let model: LiteLLMRecord | undefined;
+    try {
+      const backendBody = await backendRequest<ModelInfoResponse>("/models", {});
+      model = (backendBody.data ?? []).find((m) => m.model_name === key);
+    } catch {
+      const body = await litellmRequest<ModelInfoResponse>("/model/info", {});
+      model = (body.data ?? []).find((m) => m.model_name === key);
+    }
     if (!model) {
       throw new LiteLLMError(`Model "${key}" was not found.`, 404);
     }

@@ -27,6 +27,10 @@ try:
 except PackageNotFoundError:
     _VERSION = "unknown"
 _MEMBER_PERMISSIONS = ("/key/generate", "/key/delete")
+_ALL_PROXY_MODELS = "all-proxy-models"
+# Roles for which no team restriction applies (mirrors the SPA's
+# isAdminRole allow-list; anything else counts as a regular member).
+_ADMIN_ROLES = ("admin", "proxy_admin", "proxy_admin_viewer", "org_admin")
 
 _client = httpx.AsyncClient(base_url=_LITELLM_URL, timeout=30.0)
 
@@ -371,6 +375,117 @@ async def invite_info(team_id: str, invite_code: str) -> dict[str, Any]:
 @app.get("/config")
 async def config() -> dict[str, str]:
     return {"litellm_url": _LITELLM_URL, "version": _VERSION}
+
+
+async def _user_info(user_id: str) -> dict[str, Any]:
+    """The user's /user/info record — teams (ids) and role come from it."""
+    status, body = await _litellm("GET", "/user/info", params={"user_id": user_id})
+    if status != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not read the user's teams from the LiteLLM server: {_error_message(body, f'HTTP {status}')}",
+        )
+    info = body.get("user_info") if isinstance(body, dict) else None
+    if not isinstance(info, dict):
+        raise HTTPException(status_code=502, detail="Unexpected user info response from the LiteLLM server")
+    return info
+
+
+def _team_allowed_models(info: dict[str, Any]) -> list[str] | None:
+    """The team's allowed-models list, or None when the team is unrestricted
+    (no list, an empty list, or just the all-proxy-models wildcard)."""
+    models = info.get("models")
+    if not isinstance(models, list):
+        return None
+    names = {name for name in models if isinstance(name, str) and name != ""}
+    if not names or names == {_ALL_PROXY_MODELS}:
+        return None
+    return sorted(names)
+
+
+async def _allowed_model_names(team_ids: list[str]) -> list[str] | None:
+    """Union of the teams' allowed-models lists; None when any of the teams
+    is unrestricted (= every deployed model is allowed)."""
+    allowed: set[str] = set()
+    for team_id in team_ids:
+        status, body = await _litellm("GET", "/team/info", params={"team_id": team_id})
+        if status != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Could not read the team {team_id} from the LiteLLM server: {_error_message(body, f'HTTP {status}')}",
+            )
+        info = body.get("team_info") if isinstance(body, dict) else None
+        if not isinstance(info, dict):
+            raise HTTPException(status_code=502, detail=f"Unexpected team info response from the LiteLLM server for team {team_id}")
+        models = _team_allowed_models(info)
+        if models is None:
+            return None
+        allowed.update(models)
+    return sorted(allowed)
+
+
+@app.get("/models")
+async def list_models(request: Request) -> dict[str, Any]:
+    """Model deployments with their cost metadata, limited to what the
+    signed-in user's teams allow — /model/info is admin-gated on the proxy
+    (internal users get no pricing), so the master key fetches the full list
+    and this route narrows it per caller. Admin-tier callers get the whole
+    catalog (their team restriction is vacuous — the proxy answers them
+    everywhere anyway). An optional ?team_id= restricts the view to one
+    team (members only, admins exempt)."""
+    if not _LITELLM_MASTER_KEY:
+        raise HTTPException(status_code=503, detail="Invite backend is not configured: set LITELLM_MASTER_KEY")
+    bearer = _bearer_token(request)
+    if bearer == "":
+        raise HTTPException(status_code=401, detail="Sign in to list the models available to your teams")
+    user_id = await _user_id_from_key(bearer)
+
+    info = await _user_info(user_id)
+    role = info.get("user_role")
+    admin = isinstance(role, str) and role in _ADMIN_ROLES
+    teams = info.get("teams")
+    team_ids = (
+        [team for team in teams if isinstance(team, str) and team != ""]
+        if isinstance(teams, list)
+        else []
+    )
+
+    requested_team = request.query_params.get("team_id", "")
+    allowed: list[str] | None
+    if admin:
+        # No restriction unless one team was asked for explicitly.
+        allowed = (
+            await _allowed_model_names([requested_team])
+            if requested_team != ""
+            else None
+        )
+    else:
+        if requested_team != "" and requested_team not in team_ids:
+            raise HTTPException(status_code=403, detail="You are not a member of this team")
+        allowed = await _allowed_model_names(
+            [requested_team] if requested_team != "" else team_ids
+        )
+
+    status, body = await _litellm("GET", "/model/info")
+    if status != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not list the models on the LiteLLM server: {_error_message(body, f'HTTP {status}')}",
+        )
+    deployments = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(deployments, list):
+        raise HTTPException(status_code=502, detail="Unexpected model info response from the LiteLLM server")
+
+    models: list[Any] = []
+    for entry in deployments:
+        if allowed is None or (isinstance(entry, dict) and entry.get("model_name") in allowed):
+            models.append(entry)
+    if allowed is not None:
+        # Models the teams allow but the proxy does not deploy still show up
+        # (without pricing), like the /models view of the SPA.
+        known = {entry.get("model_name") for entry in models if isinstance(entry, dict)}
+        models.extend({"model_name": name} for name in allowed if name not in known)
+    return {"data": models}
 
 
 @app.get("/{file_path:path}")

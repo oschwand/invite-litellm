@@ -99,9 +99,12 @@ token hash.
 
 ### `/models` — model catalog
 
-Per-million-token pricing and modes. Internal users see exactly the models
-their session may call (via the OpenAI-compatible `/v1/models`); admins see
-the full `/model/info` catalog.
+Per-million-token pricing and modes. Non-admin sessions get the models
+their teams allow **with pricing**, via the Python backend's authenticated
+`GET /models` (the proxy's `/model/info` hides deployments and costs from
+internal users); admins see the full `/model/info` catalog directly.
+`?team_id=` narrows to one team's allowlist, `?key_hash=` to a virtual
+key's own allowlist.
 
 ### `/playground` — chat test
 

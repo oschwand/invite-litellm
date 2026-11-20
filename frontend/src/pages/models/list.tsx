@@ -1,9 +1,12 @@
 import { useMemo, useState } from "react";
 import { List, TagField, useTable } from "@refinedev/antd";
-import { useCustom } from "@refinedev/core";
+import { useCustom, useGetIdentity } from "@refinedev/core";
 import { SearchOutlined } from "@ant-design/icons";
-import { Input, Popover, Table, Typography } from "antd";
-import { useSearchParams } from "react-router";
+import { Input, Popover, Table, Tag, Typography } from "antd";
+import { Link, useSearchParams } from "react-router";
+
+import { isAllModels } from "../../utils/models";
+import { isAdminRole } from "../../providers/access";
 
 export interface ModelDeployment {
   id: string;
@@ -173,7 +176,123 @@ const formatContext = (value: number | null | undefined) =>
 
 type TeamInfoResponse = {
   id?: string;
-  team_info?: { team_alias?: string | null } | null;
+  team_info?: {
+    team_alias?: string | null;
+    models?: string[] | null;
+  } | null;
+};
+
+type TeamListItem = {
+  team_id: string;
+  team_alias?: string | null;
+};
+
+// Shared /team/info?team_id=… lookup — both team cells below use it, and
+// react-query dedupes the request for the same team.
+const useTeamInfoQuery = (teamId: string) =>
+  useCustom<TeamInfoResponse>({
+    url: "/team/info",
+    method: "get",
+    config: { query: { team_id: teamId } },
+    errorNotification: false,
+  });
+
+const TeamAliasCell = ({ team }: { team: TeamListItem }) => {
+  const { query } = useTeamInfoQuery(team.team_id);
+  const alias =
+    (query.data as TeamInfoResponse | undefined)?.team_info?.team_alias ??
+    null;
+  return (
+    <Link to={`/models?team_id=${team.team_id}`}>
+      {alias || team.team_alias || team.team_id}
+    </Link>
+  );
+};
+
+// One row of the per-team overview: resolves the team's live allowlist via
+// /team/info?team_id=… (best-effort — an erroring team shows no models).
+const TeamModelsRow = ({ team }: { team: TeamListItem }) => {
+  const { query } = useTeamInfoQuery(team.team_id);
+  const models =
+    (query.data as TeamInfoResponse | undefined)?.team_info?.models ?? null;
+
+  if (query.isLoading) {
+    return <Typography.Text type="secondary">…</Typography.Text>;
+  }
+  if (isAllModels(models)) {
+    return <Link to={`/models?team_id=${team.team_id}`}>All models</Link>;
+  }
+  return (
+    <span>
+      {(models ?? []).map((model) => (
+        <Tag key={model} style={{ fontFamily: "monospace" }}>
+          {model}
+        </Tag>
+      ))}
+    </span>
+  );
+};
+
+// Model list per team (shown on the unfiltered /models view only).
+// /team/list is admin-gated (407 for internal users): when it does not
+// resolve, fall back to the signed-in user's own teams, listed in
+// /user/info's user_info.teams — /team/info stays callable per team.
+const TeamModelsTable = () => {
+  const { data: identity } = useGetIdentity<{ id?: string }>();
+  const { query: teamListQuery } = useCustom<{ teams?: TeamListItem[] }>({
+    url: "/team/list",
+    method: "get",
+    errorNotification: false,
+  });
+  const { query: userInfoQuery } = useCustom<{ user_info?: { teams?: string[] } }>({
+    url: "/user/info",
+    method: "get",
+    config: { query: { user_id: identity?.id ?? "" } },
+    queryOptions: {
+      enabled: Boolean(identity?.id) && !teamListQuery.isSuccess,
+    },
+    errorNotification: false,
+  });
+
+  const adminTeams = teamListQuery.isSuccess
+    ? ((teamListQuery.data as { teams?: TeamListItem[] } | undefined)?.teams ??
+        [])
+    : [];
+  const memberTeams: TeamListItem[] = (
+    (userInfoQuery.data as { user_info?: { teams?: string[] } } | undefined)
+      ?.user_info?.teams ?? []
+  ).map((teamId) => ({ team_id: teamId }));
+  const teams = teamListQuery.isSuccess ? adminTeams : memberTeams;
+  const loading =
+    teamListQuery.isLoading ||
+    (!teamListQuery.isSuccess && userInfoQuery.isLoading);
+
+  if (!loading && teams.length === 0) return null;
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <Typography.Title level={5} style={{ marginTop: 0 }}>
+        Model list by team
+      </Typography.Title>
+      <Table<TeamListItem>
+        rowKey="team_id"
+        loading={loading}
+        dataSource={teams}
+        pagination={false}
+        size="small"
+      >
+        <Table.Column<TeamListItem>
+          dataIndex="team_alias"
+          title="Team"
+          render={(_, record) => <TeamAliasCell team={record} />}
+        />
+        <Table.Column<TeamListItem>
+          title="Models"
+          render={(_, record) => <TeamModelsRow team={record} />}
+        />
+      </Table>
+    </div>
+  );
 };
 
 export const ModelList = () => {
@@ -182,6 +301,11 @@ export const ModelList = () => {
   const [searchParams] = useSearchParams();
   const teamId = searchParams.get("team_id") ?? undefined;
   const keyHash = searchParams.get("key_hash") ?? undefined;
+
+  // Non-admin sessions list the models their teams allow (backend GET
+  // /models); admins keep the full deployment list via /model/info.
+  const { data: identity } = useGetIdentity<{ role?: string }>();
+  const adminTier = isAdminRole(identity?.role);
 
   const { tableProps } = useTable<ModelDeployment>({
     resource: "models",
@@ -252,7 +376,9 @@ export const ModelList = () => {
     );
   }, [tableProps.dataSource, search]);
 
-  let title: React.ReactNode = "All proxy models";
+  let title: React.ReactNode = adminTier
+    ? "All proxy models"
+    : "Models available to your teams";
   if (teamId) {
     title = teamName ?? "Team models";
   } else if (keyHash) {
@@ -287,6 +413,7 @@ export const ModelList = () => {
         />
       }
     >
+      {teamId == null && keyHash == null ? <TeamModelsTable /> : null}
       <Table {...tableProps} dataSource={filteredModels} rowKey="id">
         <Table.Column<ModelDeployment>
           dataIndex="model_name"

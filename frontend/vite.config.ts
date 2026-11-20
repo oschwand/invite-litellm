@@ -8,8 +8,10 @@ const INVITE_BACKEND_URL =
 // In production the Python backend serves this SPA, so the invite page
 // calls it same-origin: the redemption POST goes to the page's own URL and
 // the team-name lookup to GET /invite/{team_id}/{code}/info. Under the dev
-// server those URLs belong to Vite — forward both to the backend and leave
+// server those URLs belong to Vite — forward them to the backend and leave
 // the other GETs on the dev server so the SPA route (and HMR) keep working.
+// GET /models joins them, gated on the Authorization header to tell the
+// backend's JSON API apart from a navigation to the /models SPA route.
 const INVITE_INFO_PATTERN = /^\/invite\/[^/]+\/[^/]+\/info$/;
 
 async function forwardToInviteBackend(
@@ -51,7 +53,14 @@ const inviteProxy = (): Plugin => ({
         req.method === "POST" && path.startsWith("/invite/");
       const inviteInfo =
         req.method === "GET" && INVITE_INFO_PATTERN.test(path);
-      if (inviteInfo) {
+      // GET /models with an Authorization header is the backend's
+      // team-filtered model API; without one it is a browser navigation to
+      // the /models SPA route, which must stay on the dev server.
+      const modelsApi =
+        req.method === "GET" &&
+        path === "/models" &&
+        typeof req.headers.authorization === "string";
+      if (inviteInfo || modelsApi) {
         void forwardToInviteBackend(req, res);
         return;
       }

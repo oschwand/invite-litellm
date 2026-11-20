@@ -87,7 +87,8 @@ function App() {
                   {
                     name: "models",
                     list: "/models",
-                    meta: { icon: <RobotOutlined /> },
+                    // Reachable via team links, not the sider.
+                    meta: { icon: <RobotOutlined />, hide: true },
                   },
                   {
                     name: "playground",
