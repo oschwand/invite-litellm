@@ -53,6 +53,19 @@ class MockLiteLLM:
         }
         # roles returned by /user/info (default internal_user)
         self.user_roles = {"user-1": "proxy_admin"}
+        # records returned by /user/list (user_id -> row)
+        self.user_records = {
+            "user-88": {
+                "user_id": "user-88",
+                "user_alias": "Team Owner",
+                "user_email": "owner@example.com",
+            },
+            "user-1": {
+                "user_id": "user-1",
+                "user_alias": "Proxy Admin",
+                "user_email": None,
+            },
+        }
         # deployments returned by /model/info, with cost metadata
         self.models = [
             {
@@ -96,6 +109,10 @@ class MockLiteLLM:
                 "team_member_budget_table": {"max_budget": 12.5},
                 "team_member_permissions": [],
                 "models": ["gpt-4o", "claude-3-5", "gemini-pro"],
+                "members_with_roles": [
+                    {"user_id": "user-42", "user_email": "member@example.com", "role": "user"},
+                    {"user_id": "user-88", "user_email": "owner@example.com", "role": "admin"},
+                ],
             }
         if team_id == "plain":
             return {
@@ -171,6 +188,26 @@ class MockLiteLLM:
                             },
                         },
                     )
+                elif url.path == "/user/list":
+                    auth = self.headers.get("Authorization")
+                    if auth != f"Bearer {mock.MASTER_KEY}":
+                        self._send(401, {"detail": "Invalid proxy server token passed in"})
+                    else:
+                        wanted = {
+                            user_id
+                            for user_id in parse_qs(url.query).get("user_ids", [""])[0].split(",")
+                            if user_id
+                        }
+                        self._send(
+                            200,
+                            {
+                                "users": [
+                                    row
+                                    for user_id, row in mock.user_records.items()
+                                    if user_id in wanted
+                                ]
+                            },
+                        )
                 elif url.path == "/model/info":
                     self._send(200, {"data": mock.models})
                 elif url.path == "/key/list":

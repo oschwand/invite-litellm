@@ -10,9 +10,13 @@ const INVITE_BACKEND_URL =
 // the team-name lookup to GET /invite/{team_id}/{code}/info. Under the dev
 // server those URLs belong to Vite — forward them to the backend and leave
 // the other GETs on the dev server so the SPA route (and HMR) keep working.
-// GET /models joins them, gated on the Authorization header to tell the
-// backend's JSON API apart from a navigation to the /models SPA route.
+// GET /models and GET /users join them, gated on the Authorization
+// header to tell the backend's JSON APIs apart from a navigation to the
+// same-named SPA route.
 const INVITE_INFO_PATTERN = /^\/invite\/[^/]+\/[^/]+\/info$/;
+// Backend JSON APIs that share their path with an SPA route: only the
+// authenticated fetches go to the Python backend in dev.
+const BACKEND_API_PATHS = new Set(["/models", "/users"]);;
 
 async function forwardToInviteBackend(
   req: IncomingMessage,
@@ -53,14 +57,14 @@ const inviteProxy = (): Plugin => ({
         req.method === "POST" && path.startsWith("/invite/");
       const inviteInfo =
         req.method === "GET" && INVITE_INFO_PATTERN.test(path);
-      // GET /models with an Authorization header is the backend's
-      // team-filtered model API; without one it is a browser navigation to
-      // the /models SPA route, which must stay on the dev server.
-      const modelsApi =
+      // GET /models or /users with an Authorization header is the
+      // backend's JSON API; without one it is a browser navigation to the
+      // same-named SPA route, which must stay on the dev server.
+      const backendApi =
         req.method === "GET" &&
-        path === "/models" &&
+        BACKEND_API_PATHS.has(path) &&
         typeof req.headers.authorization === "string";
-      if (inviteInfo || modelsApi) {
+      if (inviteInfo || backendApi) {
         void forwardToInviteBackend(req, res);
         return;
       }

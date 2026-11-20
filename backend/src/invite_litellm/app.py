@@ -488,6 +488,91 @@ async def list_models(request: Request) -> dict[str, Any]:
     return {"data": models}
 
 
+async def _team_member_ids(team_id: str) -> set[str]:
+    """User ids of one team's members (members_with_roles)."""
+    status, body = await _litellm("GET", "/team/info", params={"team_id": team_id})
+    if status != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not read the team {team_id} from the LiteLLM server: {_error_message(body, f'HTTP {status}')}",
+        )
+    info = body.get("team_info") if isinstance(body, dict) else None
+    if not isinstance(info, dict):
+        raise HTTPException(status_code=502, detail=f"Unexpected team info response from the LiteLLM server for team {team_id}")
+    members = info.get("members_with_roles")
+    ids: set[str] = set()
+    if isinstance(members, list):
+        for member in members:
+            member_id = member.get("user_id") if isinstance(member, dict) else None
+            if isinstance(member_id, str) and member_id != "":
+                ids.add(member_id)
+    return ids
+
+
+@app.get("/users")
+async def list_users(request: Request) -> dict[str, Any]:
+    """Display names (alias, fallback email) for the requested user ids —
+    but only for users sharing a team with the signed-in caller. The proxy
+    gates /user/list behind admin rights and refuses cross-user /user/info
+    (403 "key not allowed to access this user's info"), so team members
+    have no way to resolve their teammates' names; the master key fetches
+    them here and the co-membership check keeps this from becoming a
+    directory of every user. Admin-tier callers may look anyone up, like
+    the proxy answers them everywhere."""
+    if not _LITELLM_MASTER_KEY:
+        raise HTTPException(status_code=503, detail="Invite backend is not configured: set LITELLM_MASTER_KEY")
+    bearer = _bearer_token(request)
+    if bearer == "":
+        raise HTTPException(status_code=401, detail="Sign in to look up user names")
+    user_id = await _user_id_from_key(bearer)
+
+    requested = list(
+        dict.fromkeys(
+            user for user in request.query_params.get("user_ids", "").split(",") if user != ""
+        )
+    )
+    if not requested:
+        return {"users": []}
+
+    info = await _user_info(user_id)
+    role = info.get("user_role")
+    admin = isinstance(role, str) and role in _ADMIN_ROLES
+    if not admin:
+        teams = info.get("teams")
+        team_ids = (
+            [team for team in teams if isinstance(team, str) and team != ""]
+            if isinstance(teams, list)
+            else []
+        )
+        co_members: set[str] = set()
+        for team_id in team_ids:
+            co_members |= await _team_member_ids(team_id)
+        requested = [user for user in requested if user in co_members]
+        if not requested:
+            return {"users": []}
+
+    status, body = await _litellm("GET", "/user/list", params={"user_ids": ",".join(requested)})
+    if status != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not read the users from the LiteLLM server: {_error_message(body, f'HTTP {status}')}",
+        )
+    users = body.get("users") if isinstance(body, dict) else None
+    if not isinstance(users, list):
+        raise HTTPException(status_code=502, detail="Unexpected user list response from the LiteLLM server")
+    return {
+        "users": [
+            {
+                "user_id": entry.get("user_id"),
+                "user_alias": entry.get("user_alias"),
+                "user_email": entry.get("user_email"),
+            }
+            for entry in users
+            if isinstance(entry, dict) and isinstance(entry.get("user_id"), str) and entry.get("user_id") != ""
+        ]
+    }
+
+
 @app.get("/{file_path:path}")
 async def serve_static(file_path: str) -> FileResponse:
     if file_path in ("", "index.html"):

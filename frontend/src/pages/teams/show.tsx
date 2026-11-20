@@ -1,10 +1,12 @@
 import { Card, Descriptions, Table, Typography } from "antd";
+import { useEffect, useState } from "react";
 import type { TableColumnsType } from "antd";
 import { Link, useParams } from "react-router";
 import { useCustom, useGetIdentity, useList } from "@refinedev/core";
 import { DateField, EditButton, List, TagField } from "@refinedev/antd";
 import { isAllModels } from "../../utils/models";
 import { KeyRowActions } from "../../components";
+import { backendRequest } from "../../providers/backend";
 import type { LiteLLMIdentity } from "../../providers/auth";
 import type { VirtualKey } from "../keys/list";
 
@@ -32,8 +34,51 @@ type TeamMemberMe = {
   litellm_budget_table?: { max_budget?: number | null } | null;
 };
 
+type TeamMemberRow = { user_id: string; user_email: string | null; role: string };
+type OwnerUser = { user_id: string; user_alias: string | null; user_email: string | null };
+
 const usd = (value: number | null | undefined) =>
   value == null ? "—" : `$${value.toFixed(2)}`;
+
+// One owner's display name. The proxy gates /user/list behind admin
+// rights and refuses cross-user /user/info (403), so a member session
+// resolves teammates' aliases through the Python backend's GET /users
+// (master key + co-membership check) — best-effort: the membership row's
+// email is the last resort, for users that have no alias at all.
+const TeamOwnerName = ({
+  member,
+  ownerUsers,
+}: {
+  member: TeamMemberRow;
+  ownerUsers: OwnerUser[];
+}) => {
+  const user = ownerUsers.find((candidate) => candidate.user_id === member.user_id);
+  const listAlias = user?.user_alias ?? null;
+  const [backendAlias, setBackendAlias] = useState<string | null>(null);
+  useEffect(() => {
+    if (listAlias != null) return;
+    let cancelled = false;
+    backendRequest<{ users?: { user_id: string; user_alias: string | null }[] }>(
+      "/users",
+      { query: { user_ids: member.user_id } },
+    )
+      .then((body) => {
+        const found = (body.users ?? []).find(
+          (candidate) => candidate.user_id === member.user_id,
+        );
+        if (!cancelled && found?.user_alias) setBackendAlias(found.user_alias);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [listAlias, member.user_id]);
+  return (
+    <>
+      {listAlias ?? backendAlias ?? user?.user_email ?? member.user_email ?? member.user_id}
+    </>
+  );
+};
 
 // Base columns shared by both tables — antd Table only accepts Column
 // children as direct JSX children, so a reusable wrapper component would
@@ -149,32 +194,21 @@ export const TeamShow = () => {
     (memberQuery.data as TeamMemberMe | undefined)?.litellm_budget_table
       ?.max_budget ?? null;
 
-  // Team owner(s) = members with the admin role; resolve display names
-  // via /user/list (best-effort — non-admin members fall back to the
-  // email/id carried by the membership row).
-  const admins = (team?.members_with_roles ?? []).filter(
+  // Team owner(s) = members with the admin role; /user/list resolves
+  // their aliases in one call for admin sessions (members fall through to
+  // the per-owner /user/info in TeamOwnerName).
+  const admins = ((team?.members_with_roles ?? []) as TeamMemberRow[]).filter(
     (member) => member.role === "admin",
   );
-  const { query: ownersQuery } = useCustom<{
-    users?: { user_id: string; user_alias: string | null; user_email: string | null }[];
-  }>({
+  const { query: ownersQuery } = useCustom<{ users?: OwnerUser[] }>({
     url: "/user/list",
     method: "get",
     config: { query: { user_ids: admins.map((m) => m.user_id).join(",") } },
     queryOptions: { enabled: admins.length > 0 },
+    errorNotification: false,
   });
   const ownerUsers =
-    (ownersQuery.data as
-      | { users?: { user_id: string; user_alias: string | null; user_email: string | null }[] }
-      | undefined)?.users ?? [];
-  const teamOwners = admins
-    .map((member) => {
-      const user = ownerUsers.find((candidate) => candidate.user_id === member.user_id);
-      return (
-        user?.user_alias ?? user?.user_email ?? member.user_email ?? member.user_id
-      );
-    })
-    .join(", ");
+    (ownersQuery.data as { users?: OwnerUser[] } | undefined)?.users ?? [];
 
   // Every key of the team in one walk (meta.allPages). The provider forwards
   // the team_id filter to /key/list; "mine" is filtered client-side because
@@ -207,7 +241,16 @@ export const TeamShow = () => {
           <Descriptions.Item label="Default member budget">
             {usd(team?.team_member_budget_table?.max_budget ?? null)}
           </Descriptions.Item>
-          <Descriptions.Item label="Team owner">{teamOwners || "—"}</Descriptions.Item>
+          <Descriptions.Item label="Team owner">
+            {admins.length === 0
+              ? "—"
+              : admins.map((member, index) => (
+                  <span key={member.user_id}>
+                    {index > 0 ? ", " : ""}
+                    <TeamOwnerName member={member} ownerUsers={ownerUsers} />
+                  </span>
+                ))}
+          </Descriptions.Item>
           <Descriptions.Item label="Total spend">
             {usd(team?.spend ?? null)}
           </Descriptions.Item>
