@@ -145,7 +145,7 @@ export const TeamList = () => {
           title="Allowed models"
           render={(value, record) =>
             isAllModels(value) ? (
-              <Link to="/models">All models</Link>
+              <Link to={`/models?team_id=${record.team_id}`}>All models</Link>
             ) : (
               <Link to={`/models?team_id=${record.team_id}`}>
                 {value.length} models

@@ -108,7 +108,15 @@ export const KeyList = () => {
           title="Models"
           render={(value, record) =>
             isAllModels(value) ? (
-              <Link to="/models">All models</Link>
+              <Link
+                to={
+                  record.team_id
+                    ? `/models?team_id=${record.team_id}`
+                    : `/models?key_hash=${record.token}`
+                }
+              >
+                All models
+              </Link>
             ) : (
               <Link to={`/models?key_hash=${record.token}`}>
                 {value.length} model{value.length > 1 ? "s" : ""}

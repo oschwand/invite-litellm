@@ -99,12 +99,14 @@ token hash.
 
 ### `/models` — model catalog
 
-Per-million-token pricing and modes. Non-admin sessions get the models
-their teams allow **with pricing**, via the Python backend's authenticated
-`GET /models` (the proxy's `/model/info` hides deployments and costs from
-internal users); admins see the full `/model/info` catalog directly.
-`?team_id=` narrows to one team's allowlist, `?key_hash=` to a virtual
-key's own allowlist.
+Per-million-token pricing and modes, titled "Models for team …" (a key
+filter shows the key instead). Reached only through team/key links —
+every one carries `?team_id=` or `?key_hash=` (even "All models"), and
+without a filter the page shows nothing. Non-admin sessions get the
+models their teams allow **with pricing**, via the Python backend's
+authenticated `GET /models` (the proxy's `/model/info` hides deployments
+and costs from internal users); admins see the full `/model/info`
+catalog directly.
 
 ### `/playground` — chat test
 
