@@ -7,12 +7,12 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM python:3.13-slim AS builder
-COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /uvx /usr/local/bin/
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 WORKDIR /app
-COPY pyproject.toml uv.lock .python-version README.md LICENSE ./
+COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
-COPY src/ ./src/
+COPY backend/src/ ./src/
 RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:3.13-slim AS runtime

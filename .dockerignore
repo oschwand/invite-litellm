@@ -3,6 +3,11 @@
 .venv
 **/__pycache__
 **/*.py[oc]
+backend/.venv
+backend/.coverage
+backend/.pytest_cache
+backend/pytest-of-schwander
+crush.log
 frontend/.env
 frontend/node_modules
 frontend/dist

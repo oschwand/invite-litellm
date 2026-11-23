@@ -7,7 +7,7 @@
 - **`backend/`** — the Python `uv` project (`src/` layout, package `invite_litellm`, FastAPI, Python ≥ 3.13). Four jobs: serve the built SPA, redeem invites server-side using the proxy's master key, expose an authenticated team-filtered model list (`GET /models`), and resolve teammates' display names (`GET /users`). The version in `backend/pyproject.toml` is the single source of truth, surfaced at runtime via `importlib.metadata` → `GET /config` → SPA footer (works in the container where no source tree exists).
 - **`frontend/`** — the SPA: **Refine v5 + React 19 + TypeScript + Ant Design 5 + Vite 6** (the original Alpine.js app was removed — "refine is the new frontend"). **Read `frontend/AGENTS.md` before any frontend work** — it contains hard-won LiteLLM API knowledge (the hidden `/v2/login` endpoint, auth via the JWT `key` claim, key-regeneration simulation, the three error-body shapes) that is not discoverable from the code or the LiteLLM OpenAPI spec.
 
-Also at the root: `Dockerfile` (multi-stage image — **currently stale**, see Gotchas), `compose.yml` (runs the prebuilt ghcr.io image), `.github/workflows/docker.yml` (multi-arch publish to `ghcr.io/oschwand/invite-litellm` on `v*.*.*` tags or manual dispatch), `README.md` (user-facing — keep it in sync when commands or layout change), and three reference docs added alongside the code: `BACKEND.md` (HTTP API — every route, the redemption pipeline, the upstream LiteLLM call map), `FRONTEND.md` (SPA routes by access tier: public / user dashboard / administration), and `SECURITY.md` (manual security review at commit `6ff58fe` — findings up to high severity plus a deployment hardening checklist). Keep all of them in sync with the code, like AGENTS.md itself.
+Also at the root: `Dockerfile` (multi-stage image, paths fixed for the `backend/`/`frontend/` layout — see Container/CI), `compose.yml` (runs the prebuilt ghcr.io image), `.github/workflows/docker.yml` (multi-arch publish to `ghcr.io/oschwand/invite-litellm` on `v*.*.*` tags or manual dispatch), `README.md` (user-facing — keep it in sync when commands or layout change), and three reference docs added alongside the code: `BACKEND.md` (HTTP API — every route, the redemption pipeline, the upstream LiteLLM call map), `FRONTEND.md` (SPA routes by access tier: public / user dashboard / administration), and `SECURITY.md` (manual security review at commit `6ff58fe` — findings up to high severity plus a deployment hardening checklist). Keep all of them in sync with the code, like AGENTS.md itself.
 
 ## Backend
 
@@ -58,7 +58,7 @@ Integration tests (pytest and coverage, both dev dependencies): `uv run pytest` 
 
 ```sh
 cd frontend
-npm install        # .npmrc forces legacy-peer-deps — use npm, not yarn/pnpm
+npm install        # plain npm, strict peer resolution (no .npmrc flags) — keep using npm, not yarn/pnpm
 npm run build      # tsc FIRST (type errors fail the build before Vite runs) → dist/
 npx tsc --noEmit   # typecheck only — preferred check
 npx eslint .       # lint (there is no `lint` script in package.json)
@@ -69,7 +69,7 @@ Never start the dev server yourself (`npm run dev`) — the user keeps one runni
 ### Container / CI
 
 - `compose.yml` pulls the prebuilt multi-arch image: `docker compose up` with `LITELLM_URL` / `LITELLM_MASTER_KEY` in the environment.
-- The root `Dockerfile` (node:22 builds the SPA → uv builds the venv → slim non-root runtime; `LITELLM_URL` is a build-time default, `LITELLM_MASTER_KEY` runtime-only, `.dockerignore` keeps `.env` out) is **stale**: it still copies `pyproject.toml uv.lock …` and `src/` from the repo root, but they moved to `backend/` — a build from the root fails until those paths are fixed. `.github/workflows/docker.yml` builds it on `v*.*.*` tags; the last green build (v0.2.0) predates the move.
+- The root `Dockerfile` (node:22 builds the SPA → uv builds the venv → slim non-root runtime) follows the split layout: the SPA stage copies `frontend/package.json` + `package-lock.json` (plain `npm ci`, strict peer resolution — the old `legacy-peer-deps` `.npmrc` workaround was removed by dropping the stale scaffold `@typescript-eslint/*@5` devDependencies that conflicted with eslint 9; the kbar `ERESOLVE overriding peer dependency` lines during `npm ci` are benign warnings — see `frontend/AGENTS.md`), then the rest of `frontend/`; the uv builder stage copies `backend/pyproject.toml` + `backend/uv.lock` then `backend/src/` (no README/LICENSE — `pyproject.toml` declares none, see Gotcha 1). uv is pinned to 0.13.7 to match the lockfile's revision. `LITELLM_URL` is a build-time default, `LITELLM_MASTER_KEY` runtime-only, `.dockerignore` keeps `.env` and backend artifacts (`.venv`, caches, coverage) out of the context. `.github/workflows/docker.yml` builds it on `v*.*.*` tags or manual dispatch; the last published build (v0.2.0) predates the layout move, so the next tag publishes the fixed image.
 - `frontend/Dockerfile` is the create-refine-app scaffold's standalone image — unused.
 
 ## Gotchas
@@ -78,7 +78,7 @@ Never start the dev server yourself (`npm run dev`) — the user keeps one runni
 2. **Paths resolve from `backend/`, not the repo root**: `_PROJECT_ROOT = Path(__file__).resolve().parents[2]` equals `backend/`, so the dotenv path is `backend/.env` (does not exist — the **repo-root `.env` is NOT read**) and the static default is `backend/frontend/dist` (never exists). Pass `STATIC_DIR` (resolved against your cwd) and real env vars.
 3. **The repo-root `.env` is tracked in git** (currently placeholder test values, `sk-1234`). The root `.gitignore` does not ignore it; only `.dockerignore` keeps it out of images. Do not put a real master key there without untracking it first (finding SEC-01 in `SECURITY.md`).
 4. **Catch-all route order**: any new backend API route must be registered *before* `GET /{file_path:path}` in `app.py`, or it is shadowed.
-5. **Stale root `Dockerfile`**: it still copies `pyproject.toml uv.lock …` and `src/` from the repo root, but they moved to `backend/` — a build from the root fails until those paths are fixed (details in Container/CI above).
+5. **The root `Dockerfile` must copy from `backend/`, not the repo root** (the Python project moved): its uv builder stage copies `backend/pyproject.toml`, `backend/uv.lock` and `backend/src/`, and the uv version pin must stay compatible with the lockfile's `revision` (currently 0.13.7 for revision 5) — details in Container/CI above.
 6. **Tests exist only for the backend** (`backend/tests/`, pytest — see Commands). The frontend has none (its gates are the `tsc` pass in `npm run build` and manual `npx eslint .`), and CI builds only the Docker image — nothing runs the test suite.
 7. A live LiteLLM proxy for testing is expected at `http://localhost:4000` (swagger at `/`, OpenAPI at `/openapi.json`). Its `/v2/login` route is hidden from that spec — see `frontend/AGENTS.md`.
 
