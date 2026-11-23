@@ -16,7 +16,7 @@ export interface ModelDeployment {
   } | null;
 }
 
-const usd = (value: number) => `$${value.toFixed(2)}`;
+const usd = (value: number) => `$${value.toFixed(4)}`;
 
 // Cost scaling: per-token/character/audio-token fields are quoted per
 // million; image/second/request fields as-is. Cache fields are named

@@ -38,7 +38,7 @@ type TeamMemberRow = { user_id: string; user_email: string | null; role: string 
 type OwnerUser = { user_id: string; user_alias: string | null; user_email: string | null };
 
 const usd = (value: number | null | undefined) =>
-  value == null ? "—" : `$${value.toFixed(2)}`;
+  value == null ? "—" : `$${value.toFixed(4)}`;
 
 // One owner's display name. The proxy gates /user/list behind admin
 // rights and refuses cross-user /user/info (403), so a member session

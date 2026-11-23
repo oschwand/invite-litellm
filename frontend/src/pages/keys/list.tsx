@@ -38,7 +38,7 @@ export interface VirtualKey {
 }
 
 const usd = (value: number | null | undefined) =>
-  value == null ? "—" : `$${value.toFixed(2)}`;
+  value == null ? "—" : `$${value.toFixed(4)}`;
 
 export const KeyList = () => {
   const { tableProps } = useTable<VirtualKey>({

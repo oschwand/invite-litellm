@@ -313,7 +313,7 @@ export const InviteRedeem = () => {
             {teamInfo && (
               <Typography.Paragraph type="secondary">
                 {teamInfo.memberBudget != null
-                  ? `Your virtual key will have a spend budget of $${teamInfo.memberBudget.toFixed(2)}.`
+                  ? `Your virtual key will have a spend budget of $${teamInfo.memberBudget.toFixed(4)}.`
                   : "Your virtual key will be created without a default spend budget."}
               </Typography.Paragraph>
             )}
@@ -353,7 +353,7 @@ export const InviteRedeem = () => {
             {teamInfo && (
               <Typography.Paragraph type="secondary">
                 {teamInfo.memberBudget != null
-                  ? `Your virtual key will have a spend budget of $${teamInfo.memberBudget.toFixed(2)}.`
+                  ? `Your virtual key will have a spend budget of $${teamInfo.memberBudget.toFixed(4)}.`
                   : "Your virtual key will be created without a default spend budget."}
               </Typography.Paragraph>
             )}

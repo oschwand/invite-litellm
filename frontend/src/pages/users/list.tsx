@@ -12,7 +12,7 @@ export interface LiteLLMUser {
 }
 
 const usd = (value: number | null | undefined) =>
-  value == null ? "—" : `$${value.toFixed(2)}`;
+  value == null ? "—" : `$${value.toFixed(4)}`;
 
 const roleColor = (role: string | null | undefined): string => {
   if (role === "proxy_admin") return "gold";

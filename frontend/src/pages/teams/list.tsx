@@ -19,7 +19,7 @@ export interface Team {
 }
 
 const usd = (value: number | null | undefined) =>
-  value == null ? "—" : `$${value.toFixed(2)}`;
+  value == null ? "—" : `$${value.toFixed(4)}`;
 
 interface TeamFormValues {
   name: string;

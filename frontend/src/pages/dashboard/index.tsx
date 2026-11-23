@@ -55,7 +55,7 @@ const TeamMemberBudget = ({ teamId }: { teamId: string }) => {
 };
 
 const usd = (value: number | null | undefined) =>
-  value == null ? "—" : `$${value.toFixed(2)}`;
+  value == null ? "—" : `$${value.toFixed(4)}`;
 
 export const Dashboard = () => {
   const { data: identity } = useGetIdentity<LiteLLMIdentity>();
@@ -103,7 +103,7 @@ export const Dashboard = () => {
                 value={
                   myInfo?.max_budget == null
                     ? "Unlimited"
-                    : `$${myInfo.max_budget.toFixed(2)}`
+                    : `$${myInfo.max_budget.toFixed(4)}`
                 }
               />
             </Col>
