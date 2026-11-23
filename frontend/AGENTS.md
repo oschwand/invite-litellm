@@ -18,7 +18,7 @@ npx eslint .     # lint (see gotcha below — there is NO `lint` script in packa
 
 - No test framework is configured. There are no tests and no test runner.
 - **Never start the dev server yourself** (`npm run dev`) — the user keeps one running. Typecheck with `npx tsc --noEmit` instead of smoke-testing in a browser.
-- `.npmrc` sets `legacy-peer-deps=true` — use npm; dependency resolution expects it.
+- Plain npm with **strict peer resolution** (no `.npmrc` anymore): the scaffold's stale `@typescript-eslint/{eslint-plugin,parser}@5` devDependencies — superseded by the `typescript-eslint@8` meta-package the flat `eslint.config.js` actually imports — were the only *hard* eslint-8-vs-9 peer conflict forcing `legacy-peer-deps`; they were removed and the lockfile regenerated. `npm install`/`npm ci` still print benign `ERESOLVE overriding peer dependency` **warnings** for `@refinedev/kbar`'s transitive `kbar`/`react-virtual` (they declare react ≤18 peers but run fine on 19; npm records the override in the lockfile) — don't "fix" those by re-adding the flag. If you add a package and npm reports a hard ERESOLVE **error**, fix the versions instead.
 
 ## Architecture
 
